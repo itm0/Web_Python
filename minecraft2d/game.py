@@ -314,10 +314,6 @@ def ensure_stones():
     for c in default_columns:
         if not Stone.query.filter_by(column=c).first():
             db.session.add(Stone(column=c))
-    db.session.commit()
-
-
-
 
 @game_bp.route("/img/<path:filename>")
 def image_file(filename):

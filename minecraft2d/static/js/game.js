@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', function () {
   var sceneGrid = document.querySelector('#scene-grid');
   var woodCount = document.querySelector('#wood-count');
   var stoneCount = document.querySelector('#stone-count');
+  var inventoryMain = document.querySelector('#inventory-main');
+  var inventoryHotbar = document.querySelector('#inventory-hotbar');
   var slotsGrid = document.querySelector('#slots-grid');
   var logsList = document.querySelector('#logs-list');
   var buildingButtons = document.querySelectorAll('.building-option[data-building-key]');
@@ -11,6 +13,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   var tileSize = 96;
   var mapColumns = 12;
+  var minimumColumns = 12;
   var mapRows = 2;
   var treeTimers = {}; // column -> seconds left
   var stoneTimers = {}; // column -> seconds left
@@ -18,6 +21,47 @@ document.addEventListener('DOMContentLoaded', function () {
   var selectedBuildingKey = 'cabana';
   var steeveTile = Number(localStorage.getItem('steeve-tile')) || 2;
   var walkLimit = mapColumns - 1;
+  var latestStatePayload = null;
+  var previousInventory = {
+    wood: -1,
+    stone: -1
+  };
+
+  function getBaseTileSize() {
+    if (window.innerWidth <= 720) {
+      return 72;
+    }
+
+    return 96;
+  }
+
+  function updateSceneMetrics() {
+    var frameWidth = 0;
+    var computedColumns = 0;
+
+    if (!sceneFrame) {
+      tileSize = getBaseTileSize();
+      walkLimit = mapColumns - 1;
+      return;
+    }
+
+    frameWidth = sceneFrame.clientWidth || sceneFrame.getBoundingClientRect().width || (minimumColumns * tileSize);
+
+    if (window.innerWidth <= 430) {
+      // Keep all mandatory columns visible on narrow mobile viewports.
+      tileSize = Math.max(32, Math.floor(frameWidth / minimumColumns));
+    } else {
+      tileSize = getBaseTileSize();
+    }
+
+    computedColumns = Math.ceil(frameWidth / tileSize);
+    mapColumns = Math.max(minimumColumns, computedColumns);
+    walkLimit = mapColumns - 1;
+
+    if (steeveTile > walkLimit) {
+      steeveTile = walkLimit;
+    }
+  }
 
   function buildScene(stones) {
     var row;
@@ -27,6 +71,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!sceneGrid) {
       return;
     }
+
+    updateSceneMetrics();
 
     sceneGrid.innerHTML = '';
     stoneTimers = {};
@@ -176,7 +222,7 @@ document.addEventListener('DOMContentLoaded', function () {
     steeve.style.left = (steeveTile * tileSize) + 'px';
     steeve.style.bottom = ((tileSize * mapRows) - 8) + 'px';
     steeve.style.width = 'auto';
-    steeve.style.height = '132px';
+    steeve.style.height = (tileSize * 1.375) + 'px';
     localStorage.setItem('steeve-tile', String(steeveTile));
   }
 
@@ -308,7 +354,80 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  function createInventorySlot(item) {
+    var slot = document.createElement('div');
+    slot.className = 'inventory-slot';
+
+    if (!item || item.amount <= 0) {
+      return slot;
+    }
+
+    var itemNode = document.createElement('div');
+    var icon = document.createElement('img');
+    var amount = document.createElement('span');
+
+    itemNode.className = 'inventory-item';
+    if (item.changed) {
+      itemNode.classList.add('item-enter');
+    }
+
+    icon.src = item.icon;
+    icon.alt = item.label;
+    icon.setAttribute('draggable', 'false');
+
+    amount.className = 'inventory-number';
+    amount.textContent = String(item.amount);
+
+    itemNode.appendChild(icon);
+    itemNode.appendChild(amount);
+    slot.appendChild(itemNode);
+    return slot;
+  }
+
+  function renderInventory(user) {
+    var totalMainSlots = 27;
+    var totalHotbarSlots = 9;
+    var items = [
+      {
+        key: 'wood',
+        label: 'Madeira',
+        amount: Number(user.wood || 0),
+        icon: 'https://gamepedia.cursecdn.com/minecraft_gamepedia/thumb/c/c5/Oak_Log_Axis_Y_JE5_BE3.png/150px-Oak_Log_Axis_Y_JE5_BE3.png?version=be4f749b0035ee90956bab6c5361eeb5'
+      },
+      {
+        key: 'stone',
+        label: 'Pedra',
+        amount: Number(user.stone || 0),
+        icon: 'https://gamepedia.cursecdn.com/minecraft_gamepedia/thumb/6/6a/Cobblestone_JE6_BE3.png/150px-Cobblestone_JE6_BE3.png?version=5d7e2cc3c7485a77f63449e05baecc65'
+      }
+    ];
+    var index;
+
+    if (!inventoryMain || !inventoryHotbar) {
+      return;
+    }
+
+    inventoryMain.innerHTML = '';
+    inventoryHotbar.innerHTML = '';
+
+    items.forEach(function (item) {
+      item.changed = previousInventory[item.key] !== item.amount;
+      previousInventory[item.key] = item.amount;
+    });
+
+    for (index = 0; index < totalMainSlots; index += 1) {
+      inventoryMain.appendChild(createInventorySlot(items[index] || null));
+    }
+
+    for (index = 0; index < totalHotbarSlots; index += 1) {
+      inventoryHotbar.appendChild(createInventorySlot(items[totalMainSlots + index] || null));
+    }
+  }
+
   function renderState(payload) {
+    latestStatePayload = payload;
+    renderInventory(payload.user);
+
     if (woodCount) {
       woodCount.textContent = String(payload.user.wood);
     }
@@ -518,7 +637,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   if (sceneFrame) {
     sceneFrame.style.width = '100%';
-    sceneFrame.style.maxWidth = (mapColumns * tileSize) + 'px';
+    sceneFrame.style.maxWidth = 'none';
   }
 
   if (steeve) {
@@ -552,6 +671,20 @@ document.addEventListener('DOMContentLoaded', function () {
   if (buildingButtons[0]) {
     buildingButtons[0].classList.add('selected');
   }
+
+  window.addEventListener('resize', function () {
+    if (!sceneFrame) {
+      return;
+    }
+
+    if (latestStatePayload) {
+      renderState(latestStatePayload);
+      return;
+    }
+
+    buildScene([]);
+    setSteevePosition();
+  });
 
   inventoryRemoveButtons.forEach(function (button) {
     button.addEventListener('click', function () {
