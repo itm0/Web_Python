@@ -4,7 +4,7 @@
 {% block content %}
 <section class="auth-screen auth-screen--minecraft">
   <div class="auth-backdrop"></div>
-  <div class="auth-menu-card">
+  <div class="mc-menu auth-menu-card">
     <div class="auth-logo-block">
       <p class="eyebrow">Minecraft 2D</p>
       <h2>Login</h2>
@@ -20,17 +20,17 @@
         <span>Password</span>
         <input type="password" name="password" placeholder="••••••••" required>
       </label>
-<button type="submit" class="primary-button primary-button--minecraft">
-  <span class="title">Entrar</span>
-</button>
+      <div class="double auth-actions">
+        <button type="submit" class="mc-button full">
+          <span class="title">Entrar</span>
+        </button>
+        <a class="mc-button full auth-cta-link" href="{{ url_for('auth.register') }}">
+          <span class="title">Registo</span>
+        </a>
+      </div>
     </form>
 
-    <div class="auth-links-row">
-      <p class="auth-link auth-link--minecraft">Ainda não tens conta?</p>
-      <a class="mc-button full auth-cta-link" href="{{ url_for('auth.register') }}">
-        <span class="title">Regista-te</span>
-      </a>
-    </div>
+    <p class="auth-link auth-link--minecraft">Ainda não tens conta? Usa o botão de registo.</p>
   </div>
 </section>
 {% endblock %}
