@@ -538,13 +538,13 @@ function initGame() {
         key: 'wood',
         label: 'Madeira',
         amount: parseInt(user.wood || 0, 10),
-        icon: '/static/img/tree.png'
+        icon: '/static/img/madeira.png'
       },
       {
         key: 'stone',
         label: 'Pedra',
         amount: parseInt(user.stone || 0, 10),
-        icon: '/static/img/stone.png'
+        icon: '/static/img/pedra.png'
       },
       {
         key: 'iron',
