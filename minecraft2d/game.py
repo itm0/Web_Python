@@ -57,6 +57,8 @@ def ensure_state(user):
         user.wood = RESOURCE_MAX_AMOUNT
     if user.stone > RESOURCE_MAX_AMOUNT:
         user.stone = RESOURCE_MAX_AMOUNT
+    if user.iron > RESOURCE_MAX_AMOUNT:
+        user.iron = RESOURCE_MAX_AMOUNT
     database.update_user_resources(user)
 
 
@@ -166,6 +168,7 @@ def api_state():
                 "username": current_user.username,
                 "wood": current_user.wood,
                 "stone": current_user.stone,
+                "iron": current_user.iron,
                 "has_axe": current_user.has_axe,
                 "axe_level": current_user.axe_level,
             },
@@ -243,15 +246,28 @@ def api_task_start(slot_id):
         else:
             slot.action_type = "Fabricar Machado"
         task_seconds = building["task_seconds"] + (current_user.axe_level * 8)
-        cost_wood = 15 + (current_user.axe_level * 8)
-        cost_stone = 0 if current_user.axe_level == 0 else 8 + (current_user.axe_level * 5)
-        if current_user.wood < cost_wood or current_user.stone < cost_stone:
-            msg = f"Precisas de {cost_wood} madeira."
-            if cost_stone > 0:
-                msg += f" e {cost_stone} pedra."
+        if current_user.axe_level == 0:
+            cost_wood = 15
+            cost_stone = 0
+            cost_iron = 0
+        elif current_user.axe_level == 1:
+            cost_wood = 20
+            cost_stone = 20
+            cost_iron = 0
+        else:
+            cost_wood = 15 + (current_user.axe_level * 8)
+            cost_stone = 8 + (current_user.axe_level * 5)
+            cost_iron = 3 + (current_user.axe_level - 1) * 2
+        if current_user.wood < cost_wood or current_user.stone < cost_stone or current_user.iron < cost_iron:
+            parts = []
+            if cost_wood > 0: parts.append(f"{cost_wood} madeira")
+            if cost_stone > 0: parts.append(f"{cost_stone} pedra")
+            if cost_iron > 0: parts.append(f"{cost_iron} ferro")
+            msg = "Precisas de " + ", ".join(parts) + "."
             return jsonify({"ok": False, "message": msg}), 400
         current_user.wood -= cost_wood
         current_user.stone -= cost_stone
+        current_user.iron -= cost_iron
         database.update_user_resources(current_user)
     else:
         slot.action_type = building["task_name"]
@@ -295,6 +311,7 @@ def api_task_collect(slot_id):
     else:
         current_user.wood += building["reward_wood"]
         current_user.stone += building["reward_stone"]
+        current_user.iron += building.get("reward_iron", 0)
         database.update_user_resources(current_user)
 
     slot.state = "ready"
@@ -387,7 +404,7 @@ def api_inventory_remove():
     except (TypeError, ValueError):
         return jsonify({"ok": False, "message": "Quantidade inválida."}), 400
 
-    if resource not in {"wood", "stone"}:
+    if resource not in {"wood", "stone", "iron"}:
         return jsonify({"ok": False, "message": "Recurso inválido."}), 400
 
     if amount <= 0:
@@ -395,19 +412,23 @@ def api_inventory_remove():
 
     if resource == "wood":
         current_value = current_user.wood
-    else:
+    elif resource == "stone":
         current_value = current_user.stone
+    else:
+        current_value = current_user.iron
 
     if current_value < amount:
         return jsonify({"ok": False, "message": "Inventário insuficiente."}), 400
 
     if resource == "wood":
         current_user.wood = current_value - amount
-    else:
+    elif resource == "stone":
         current_user.stone = current_value - amount
+    else:
+        current_user.iron = current_value - amount
 
-    label = "madeira" if resource == "wood" else "pedra"
+    label = {"wood": "madeira", "stone": "pedra", "iron": "ferro"}[resource]
     database.update_user_resources(current_user)
     database.add_action_log(current_user.id, f"{amount} {label} removida do inventário.")
 
-    return jsonify({"ok": True, "wood": current_user.wood, "stone": current_user.stone})
+    return jsonify({"ok": True, "wood": current_user.wood, "stone": current_user.stone, "iron": current_user.iron})

@@ -23,7 +23,8 @@ function initGame() {
   var latestStatePayload = null;
   var previousInventory = {
     wood: -1,
-    stone: -1
+    stone: -1,
+    iron: -1
   };
 
   // Ajusta tamanho base dos tiles conforme a largura do ecrã.
@@ -440,11 +441,24 @@ function initGame() {
       card.appendChild(meta);
 
       if (slot.state === 'ready' && slot.building_type === 'cabana') {
-        var costWood = 15 + (axeLevel * 8);
-        var costStone = axeLevel === 0 ? 0 : 8 + (axeLevel * 5);
+        var costWood = 0, costStone = 0, costIron = 0;
+        if (axeLevel === 0) {
+          costWood = 15;
+        } else if (axeLevel === 1) {
+          costWood = 20;
+          costStone = 20;
+        } else {
+          costWood = 15 + (axeLevel * 8);
+          costStone = 8 + (axeLevel * 5);
+          costIron = 3 + (axeLevel - 1) * 2;
+        }
+        var costParts = [];
+        if (costWood > 0) costParts.push(costWood + ' madeira');
+        if (costStone > 0) costParts.push(costStone + ' pedra');
+        if (costIron > 0) costParts.push(costIron + ' ferro');
         var costEl = document.createElement('div');
         costEl.className = 'slot-cost';
-        costEl.textContent = 'Custo: ' + costWood + ' madeira' + (costStone > 0 ? ' · ' + costStone + ' pedra' : '');
+        costEl.textContent = 'Custo: ' + costParts.join(' · ');
         card.appendChild(costEl);
       }
 
@@ -544,6 +558,12 @@ function initGame() {
         label: 'Pedra',
         amount: parseInt(user.stone || 0, 10),
         icon: '/static/img/stone.png'
+      },
+      {
+        key: 'iron',
+        label: 'Ferro',
+        amount: parseInt(user.iron || 0, 10),
+        icon: '/static/img/iron.png'
       }
     ];
     var index;

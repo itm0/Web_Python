@@ -42,7 +42,7 @@ def _format_datetime(value):
 class User(UserMixin):
     # Construtor: guarda os dados do user vindos da BD ou do registo.
     # wood/stone começam a 26 (recursos iniciais do jogo).
-    def __init__(self, id, username, email, password_hash, wood=26, stone=26, created_at=None, has_axe=0, axe_level=0):
+    def __init__(self, id, username, email, password_hash, wood=26, stone=26, iron=0, created_at=None, has_axe=0, axe_level=0):
         self.id = id
         self.username = username
         self.email = email
@@ -50,6 +50,7 @@ class User(UserMixin):
         # wood e stone são específicos do jogo (não existem no modelo User do Lab 08).
         self.wood = wood
         self.stone = stone
+        self.iron = iron
         self.created_at = created_at
         # has_axe / axe_level: ✅ (INTEGER DEFAULT, igual a wood/stone). Funcionalidade extra do projeto (machado da Mesa de Trabalho).
         self.has_axe = has_axe
@@ -78,6 +79,7 @@ class User(UserMixin):
             created_at=_parse_datetime(row["created_at"]),
             has_axe=row["has_axe"] if "has_axe" in row.keys() else 0,
             axe_level=row["axe_level"] if "axe_level" in row.keys() else 0,
+            iron=row["iron"] if "iron" in row.keys() else 0,
         )
 
 
@@ -222,6 +224,7 @@ class Database:
                     password_hash VARCHAR(255) NOT NULL,
                     wood INTEGER NOT NULL DEFAULT 26,
                     stone INTEGER NOT NULL DEFAULT 26,
+                    iron INTEGER NOT NULL DEFAULT 0,
                     has_axe INTEGER NOT NULL DEFAULT 0,
                     axe_level INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
@@ -306,18 +309,19 @@ class Database:
                     task_seconds INTEGER NOT NULL,
                     reward_wood INTEGER NOT NULL DEFAULT 0,
                     reward_stone INTEGER NOT NULL DEFAULT 0,
+                    reward_iron INTEGER NOT NULL DEFAULT 0,
                     description VARCHAR(255)
                 )
                 """
             )
             cursor.execute(
-                "INSERT OR IGNORE INTO buildings VALUES ('cabana','Mesa de Trabalho',15,5,20,'Fabricar Machado',20,0,0,'Produz ferramentas de madeira para construir.')"
+                "INSERT OR IGNORE INTO buildings VALUES ('cabana','Mesa de Trabalho',15,5,20,'Fabricar Machado',20,0,0,0,'Produz ferramentas de madeira para construir.')"
             )
             cursor.execute(
-                "INSERT OR IGNORE INTO buildings VALUES ('mina','Fornalha',10,15,25,'Fundir minerio',25,0,10,'Funde minerio em lingotes de pedra.')"
+                "INSERT OR IGNORE INTO buildings VALUES ('mina','Fornalha',10,15,25,'Fundir minerio',25,0,0,1,'Funde minerio em lingotes de ferro.')"
             )
             cursor.execute(
-                "INSERT OR IGNORE INTO buildings VALUES ('forja','Quinta',20,10,30,'Colher colheitas',30,4,4,'Cultiva alimentos e gera madeira.')"
+                "INSERT OR IGNORE INTO buildings VALUES ('forja','Quinta',20,10,30,'Colher colheitas',30,4,4,0,'Cultiva alimentos e gera madeira.')"
             )
             self.drop_legacy_tables(cursor)
             connection.commit()
@@ -388,16 +392,16 @@ class Database:
             )
             connection.commit()
 
-    # Atualiza apenas os recursos (wood e stone) de um user. Usado após cada ação de jogo.
+    # Atualiza os recursos (wood, stone, iron) de um user. Usado após cada ação de jogo.
     def update_user_resources(self, user):
         with self._connect() as connection:
             connection.execute(
                 """
                 UPDATE users
-                SET wood = ?, stone = ?
+                SET wood = ?, stone = ?, iron = ?
                 WHERE id = ?
                 """,
-                (user.wood, user.stone, user.id),
+                (user.wood, user.stone, user.iron, user.id),
             )
             connection.commit()
 
@@ -533,6 +537,7 @@ class Database:
             "task_seconds": row["task_seconds"],
             "reward_wood": row["reward_wood"],
             "reward_stone": row["reward_stone"],
+            "reward_iron": row["reward_iron"] if "reward_iron" in row.keys() else 0,
             "description": row["description"],
         }
 
