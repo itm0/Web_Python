@@ -1,20 +1,21 @@
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_user, logout_user
 
-from extensions import db
 from game_data import DEFAULT_SLOT_COUNT
-from models import ActionLog, BuildingSlot, User
+from models import User
 
 
 auth_bp = Blueprint("auth", __name__)
 
 
+def get_db():
+    return current_app.config["db"]
+
+
 def create_default_slots(user):
-    for slot_number in range(1, DEFAULT_SLOT_COUNT + 1):
-        slot = BuildingSlot(user_id=user.id, slot_number=slot_number)
-        db.session.add(slot)
-    db.session.add(ActionLog(user_id=user.id, message="Conta criada com recursos iniciais."))
-    db.session.commit()
+    database = get_db()
+    database.create_default_slots(user.id, DEFAULT_SLOT_COUNT)
+    database.add_action_log(user.id, "Conta criada com recursos iniciais.")
 
 
 @auth_bp.route("/register", methods=["GET", "POST"])
@@ -26,6 +27,7 @@ def register():
         username = request.form.get("username", "").strip()
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "")
+        database = get_db()
 
         if not username or not email or not password:
             flash("Preenche username, email e password.", "error")
@@ -35,18 +37,15 @@ def register():
             flash("A password tem de ter pelo menos 4 caracteres.", "error")
             return render_template("register.html")
 
-        if User.query.filter_by(username=username).first():
+        if database.get_user_by_username(username):
             flash("Esse username já existe.", "error")
             return render_template("register.html")
 
-        if User.query.filter_by(email=email).first():
+        if database.get_user_by_email(email):
             flash("Esse email já existe.", "error")
             return render_template("register.html")
 
-        user = User(username=username, email=email)
-        user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
+        user = database.create_user(username, email, password)
         create_default_slots(user)
         login_user(user)
         return redirect(url_for("game.dashboard"))
@@ -62,7 +61,7 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        user = User.query.filter_by(username=username).first()
+        user = get_db().get_user_by_username(username)
 
         if user is None or not user.check_password(password):
             flash("Credenciais inválidas.", "error")

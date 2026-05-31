@@ -15,9 +15,6 @@ document.addEventListener('DOMContentLoaded', function () {
   var mapColumns = 12;
   var minimumColumns = 12;
   var mapRows = 2;
-  var treeTimers = {}; // column -> seconds left
-  var stoneTimers = {}; // column -> seconds left
-  var treeTimerIntervalStarted = false;
   var selectedBuildingKey = 'cabana';
   var steeveTile = Number(localStorage.getItem('steeve-tile')) || 2;
   var walkLimit = mapColumns - 1;
@@ -75,7 +72,6 @@ document.addEventListener('DOMContentLoaded', function () {
     updateSceneMetrics();
 
     sceneGrid.innerHTML = '';
-    stoneTimers = {};
 
     (stones || []).forEach(function (stone) {
       stoneByColumn[Number(stone.column)] = stone;
@@ -170,7 +166,6 @@ document.addEventListener('DOMContentLoaded', function () {
           stoneBadge.style.fontSize = '12px';
           stoneBadge.textContent = String(stone.seconds_left || 0);
           sceneGrid.appendChild(stoneBadge);
-          stoneTimers[column] = Number(stone.seconds_left || 0);
         }
 
         sceneGrid.appendChild(tile);
@@ -450,9 +445,6 @@ document.addEventListener('DOMContentLoaded', function () {
     var existing = sceneGrid.querySelectorAll('.scene-tree, .scene-tree-stump');
     existing.forEach(function (n) { try { n.remove(); } catch (e) {} });
 
-    // reset timers map and repopulate from server payload
-    treeTimers = {};
-
     trees.forEach(function (t) {
       var column = Number(t.column);
       var row = mapRows - 1;
@@ -545,42 +537,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         stump.appendChild(badge);
         sceneGrid.appendChild(stump);
-
-        treeTimers[column] = Number(t.seconds_left || 0);
       }
     });
-
-    // start a 1s tick to update badges locally — poll server when timers reach 0
-    if (!treeTimerIntervalStarted) {
-      treeTimerIntervalStarted = true;
-      setInterval(function () {
-        var needsRefresh = false;
-        Object.keys(treeTimers).forEach(function (col) {
-          var seconds = treeTimers[col];
-          if (seconds > 0) {
-            seconds -= 1;
-            treeTimers[col] = seconds;
-            var b = document.querySelector('.tree-timer-badge[data-col="' + col + '"]');
-            if (b) b.textContent = String(seconds);
-            if (seconds <= 0) needsRefresh = true;
-          }
-        });
-        Object.keys(stoneTimers).forEach(function (col) {
-          var seconds = stoneTimers[col];
-          if (seconds > 0) {
-            seconds -= 1;
-            stoneTimers[col] = seconds;
-            var s = document.querySelector('.stone-timer-badge[data-col="' + col + '"]');
-            if (s) s.textContent = String(seconds);
-            if (seconds <= 0) needsRefresh = true;
-          }
-        });
-        if (needsRefresh) {
-          // get authoritative state from server
-          fetch('/api/state').then(function (r) { return r.json(); }).then(function (p) { renderState(p); });
-        }
-      }, 1000);
-    }
   }
 
   function refreshState() {
@@ -695,5 +653,4 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   refreshState();
-  setInterval(refreshState, 4000);
 });

@@ -2,26 +2,35 @@ from datetime import datetime, timedelta
 
 import os
 
-from flask import Blueprint, jsonify, render_template, request, send_from_directory
+from flask import Blueprint, current_app, jsonify, render_template, request, send_from_directory
 from flask_login import current_user, login_required
 
-from extensions import db
 from game_data import BUILDINGS
-from models import ActionLog, BuildingSlot, Stone, Tree
 
 
 game_bp = Blueprint("game", __name__)
+# Estes valores controlam a jogabilidade no browser.
+# Alguns deles são extensão do que foi visto na matéria, porque adicionam ciclos de recursos e ações assíncronas.
 RESOURCE_RESPAWN_SECONDS = 10
 RESOURCE_MAX_AMOUNT = 64
 TREE_WOOD_YIELD = 4
 STONE_STONE_YIELD = 2
 
 
+def get_db():
+    # A app guarda a base de dados em app.config["db"], seguindo a organização que já foi ajustada.
+    return current_app.config["db"]
+
+
 def clamp_resource_amount(value):
+    # Garante que os recursos não passam do máximo permitido no jogo.
     return min(value, RESOURCE_MAX_AMOUNT)
 
 
 def sync_slot(slot):
+    # Função de sincronização "on demand": o servidor verifica o tempo quando a página é aberta.
+    # Isto é um pouco fora da matéria porque usa timestamps para completar tarefas sem worker/cron.
+    database = get_db()
     now = datetime.utcnow()
     if slot.ready_at is None:
         return
@@ -30,26 +39,30 @@ def sync_slot(slot):
         slot.state = "ready"
         slot.started_at = None
         slot.ready_at = None
-        db.session.add(ActionLog(user_id=slot.user_id, message=f"A construção no slot {slot.slot_number} terminou."))
-
+        database.update_slot(slot)
+        database.add_action_log(slot.user_id, f"A construção no slot {slot.slot_number} terminou.")
     elif slot.state == "working" and now >= slot.ready_at:
         slot.state = "collectable"
         slot.started_at = None
         slot.ready_at = None
-        db.session.add(ActionLog(user_id=slot.user_id, message=f"A tarefa no slot {slot.slot_number} terminou. Podes recolher a recompensa."))
+        database.update_slot(slot)
+        database.add_action_log(slot.user_id, f"A tarefa no slot {slot.slot_number} terminou. Podes recolher a recompensa.")
 
 
 def ensure_state(user):
-    for slot in user.slots:
+    # Atualiza todos os slots do utilizador e normaliza recursos antes de renderizar a vista.
+    database = get_db()
+    for slot in database.list_user_slots(user.id):
         sync_slot(slot)
 
     user.wood = clamp_resource_amount(user.wood)
     user.stone = clamp_resource_amount(user.stone)
-    db.session.commit()
+    database.update_user_resources(user)
 
 
 def slot_payload(slot):
-    building = BUILDINGS.get(slot.building_type, None)
+    # Converte um slot para JSON para o frontend saber como o mostrar.
+    building = BUILDINGS.get(slot.building_type) if slot.building_type else None
     return {
         "id": slot.id,
         "slot_number": slot.slot_number,
@@ -69,6 +82,7 @@ def slot_payload(slot):
 @game_bp.route("/dashboard")
 @login_required
 def dashboard():
+    # Página principal do jogo, equivalente à view do exemplo da matéria.
     ensure_state(current_user)
     return render_template("dashboard.html", buildings=BUILDINGS)
 
@@ -76,52 +90,56 @@ def dashboard():
 @game_bp.route("/api/state")
 @login_required
 def api_state():
+    # Endpoint JSON que alimenta o frontend com o estado completo do jogo.
+    # Isto vai além do básico da matéria porque junta vários conjuntos de dados numa resposta.
+    database = get_db()
     ensure_state(current_user)
-    logs = ActionLog.query.filter_by(user_id=current_user.id).order_by(ActionLog.created_at.desc()).limit(8).all()
-    # ensure default trees exist
-    ensure_trees()
-    ensure_stones()
+    logs = database.list_action_logs(current_user.id, limit=8)
+    database.ensure_trees()
+    database.ensure_stones()
 
-    # build tree payload with availability and seconds until respawn
     now = datetime.utcnow()
     trees = []
-    for t in Tree.query.filter_by(removed_at=None).order_by(Tree.column).all():
+    for tree in database.list_trees():
+        # Árvores com cooldown: se foram cortadas recentemente, ainda não podem ser usadas.
         available = True
         seconds_left = 0
-        if t.chopped_at:
-            elapsed = (now - t.chopped_at).total_seconds()
+        if tree.chopped_at:
+            elapsed = (now - tree.chopped_at).total_seconds()
             if elapsed < RESOURCE_RESPAWN_SECONDS:
                 available = False
                 seconds_left = int(RESOURCE_RESPAWN_SECONDS - elapsed)
             else:
-                # respawn
-                t.chopped_at = None
-                db.session.add(t)
-        trees.append({
-            "column": t.column,
-            "available": available,
-            "seconds_left": seconds_left,
-        })
+                tree.chopped_at = None
+                database.update_tree(tree)
+        trees.append(
+            {
+                "column": tree.column,
+                "available": available,
+                "seconds_left": seconds_left,
+            }
+        )
 
     stones = []
-    for s in Stone.query.filter_by(removed_at=None).order_by(Stone.column).all():
+    for stone in database.list_stones():
+        # O mesmo padrão é usado para as pedras.
         available = True
         seconds_left = 0
-        if s.mined_at:
-            elapsed = (now - s.mined_at).total_seconds()
+        if stone.mined_at:
+            elapsed = (now - stone.mined_at).total_seconds()
             if elapsed < RESOURCE_RESPAWN_SECONDS:
                 available = False
                 seconds_left = int(RESOURCE_RESPAWN_SECONDS - elapsed)
             else:
-                s.mined_at = None
-                db.session.add(s)
-        stones.append({
-            "column": s.column,
-            "available": available,
-            "seconds_left": seconds_left,
-        })
-
-    db.session.commit()
+                stone.mined_at = None
+                database.update_stone(stone)
+        stones.append(
+            {
+                "column": stone.column,
+                "available": available,
+                "seconds_left": seconds_left,
+            }
+        )
 
     return jsonify(
         {
@@ -130,10 +148,8 @@ def api_state():
                 "wood": current_user.wood,
                 "stone": current_user.stone,
             },
-            "slots": [slot_payload(slot) for slot in current_user.slots],
-            "logs": [
-                {"message": log.message, "created_at": log.created_at.isoformat()} for log in logs
-            ],
+            "slots": [slot_payload(slot) for slot in database.list_user_slots(current_user.id)],
+            "logs": [{"message": log.message, "created_at": log.created_at.isoformat()} for log in logs],
             "buildings": BUILDINGS,
             "trees": trees,
             "stones": stones,
@@ -144,10 +160,16 @@ def api_state():
 @game_bp.route("/api/build/<int:slot_id>", methods=["POST"])
 @login_required
 def api_build(slot_id):
-    slot = BuildingSlot.query.filter_by(id=slot_id, user_id=current_user.id).first_or_404()
+    # Inicia uma construção num slot vazio, consumindo recursos do jogador.
+    database = get_db()
+    slot = database.get_slot(slot_id, current_user.id)
+    if slot is None:
+        return jsonify({"ok": False, "message": "Slot inválido."}), 404
+
     ensure_state(current_user)
 
-    building_key = request.json.get("building_key") if request.is_json else request.form.get("building_key")
+    payload = request.get_json(silent=True) or {}
+    building_key = payload.get("building_key") if request.is_json else request.form.get("building_key")
     building = BUILDINGS.get(building_key)
 
     if building is None:
@@ -166,15 +188,21 @@ def api_build(slot_id):
     slot.action_type = None
     slot.started_at = datetime.utcnow()
     slot.ready_at = slot.started_at + timedelta(seconds=building["construction_seconds"])
-    db.session.add(ActionLog(user_id=current_user.id, message=f"Iniciada construção de {building['name']} no slot {slot.slot_number}."))
-    db.session.commit()
+    database.update_user_resources(current_user)
+    database.update_slot(slot)
+    database.add_action_log(current_user.id, f"Iniciada construção de {building['name']} no slot {slot.slot_number}.")
     return jsonify({"ok": True})
 
 
 @game_bp.route("/api/task/<int:slot_id>/start", methods=["POST"])
 @login_required
 def api_task_start(slot_id):
-    slot = BuildingSlot.query.filter_by(id=slot_id, user_id=current_user.id).first_or_404()
+    # Depois da construção estar pronta, esta rota inicia a tarefa do edifício.
+    database = get_db()
+    slot = database.get_slot(slot_id, current_user.id)
+    if slot is None:
+        return jsonify({"ok": False, "message": "Slot inválido."}), 404
+
     ensure_state(current_user)
 
     if slot.state != "ready" or slot.building_type is None:
@@ -185,15 +213,20 @@ def api_task_start(slot_id):
     slot.action_type = building["task_name"]
     slot.started_at = datetime.utcnow()
     slot.ready_at = slot.started_at + timedelta(seconds=building["task_seconds"])
-    db.session.add(ActionLog(user_id=current_user.id, message=f"Tarefa '{building['task_name']}' iniciada no slot {slot.slot_number}."))
-    db.session.commit()
+    database.update_slot(slot)
+    database.add_action_log(current_user.id, f"Tarefa '{building['task_name']}' iniciada no slot {slot.slot_number}.")
     return jsonify({"ok": True})
 
 
 @game_bp.route("/api/task/<int:slot_id>/collect", methods=["POST"])
 @login_required
 def api_task_collect(slot_id):
-    slot = BuildingSlot.query.filter_by(id=slot_id, user_id=current_user.id).first_or_404()
+    # Recolhe a recompensa quando a tarefa já terminou.
+    database = get_db()
+    slot = database.get_slot(slot_id, current_user.id)
+    if slot is None:
+        return jsonify({"ok": False, "message": "Slot inválido."}), 404
+
     ensure_state(current_user)
 
     if slot.state != "collectable" or slot.building_type is None:
@@ -204,53 +237,54 @@ def api_task_collect(slot_id):
     current_user.stone += building["reward_stone"]
     slot.state = "ready"
     slot.action_type = None
-    db.session.add(ActionLog(user_id=current_user.id, message=f"Recompensa recolhida do slot {slot.slot_number}."))
-    db.session.commit()
+    database.update_user_resources(current_user)
+    database.update_slot(slot)
+    database.add_action_log(current_user.id, f"Recompensa recolhida do slot {slot.slot_number}.")
     return jsonify({"ok": True})
 
 
-@game_bp.route('/api/chop', methods=['POST'])
+@game_bp.route("/api/chop", methods=["POST"])
 @login_required
 def api_chop():
-    data = request.get_json() or {}
-    # expect column in payload
-    col = data.get('column')
+    # Minerar árvores/pedra por AJAX é uma funcionalidade um pouco além da matéria, mas segue a mesma ideia de rota Flask + resposta JSON.
+    database = get_db()
+    data = request.get_json(silent=True) or {}
+    column = data.get("column")
     wood_amount = TREE_WOOD_YIELD
-    if col is None:
+    if column is None:
         return jsonify({"ok": False, "message": "Coluna inválida."}), 400
 
-    tree = Tree.query.filter_by(column=int(col), removed_at=None).first()
+    tree = database.get_tree_by_column(int(column))
     if not tree:
         return jsonify({"ok": False, "message": "Árvore inexistente."}), 400
 
-    # check availability
     now = datetime.utcnow()
     if tree.chopped_at:
         elapsed = (now - tree.chopped_at).total_seconds()
         if elapsed < RESOURCE_RESPAWN_SECONDS:
             return jsonify({"ok": False, "message": "Árvore ainda não regenerou."}), 400
-        else:
-            tree.chopped_at = None
+        tree.chopped_at = None
 
-    # mark chopped
     tree.chopped_at = now
     current_user.wood = clamp_resource_amount(current_user.wood + wood_amount)
-    db.session.add(tree)
-    db.session.add(ActionLog(user_id=current_user.id, message=f"Árvore cortada: +{min(wood_amount, RESOURCE_MAX_AMOUNT)} madeira."))
-    db.session.commit()
+    database.update_tree(tree)
+    database.update_user_resources(current_user)
+    database.add_action_log(current_user.id, f"Árvore cortada: +{min(wood_amount, RESOURCE_MAX_AMOUNT)} madeira.")
     return jsonify({"ok": True, "wood": current_user.wood, "respawn_seconds": RESOURCE_RESPAWN_SECONDS})
 
 
-@game_bp.route('/api/mine-stone', methods=['POST'])
+@game_bp.route("/api/mine-stone", methods=["POST"])
 @login_required
 def api_mine_stone():
-    data = request.get_json() or {}
-    col = data.get('column')
+    # Rota equivalente à de cortar árvores, mas para pedra.
+    database = get_db()
+    data = request.get_json(silent=True) or {}
+    column = data.get("column")
     stone_amount = STONE_STONE_YIELD
-    if col is None:
+    if column is None:
         return jsonify({"ok": False, "message": "Coluna inválida."}), 400
 
-    stone = Stone.query.filter_by(column=int(col), removed_at=None).first()
+    stone = database.get_stone_by_column(int(column))
     if not stone:
         return jsonify({"ok": False, "message": "Pedra inexistente."}), 400
 
@@ -263,25 +297,27 @@ def api_mine_stone():
 
     stone.mined_at = now
     current_user.stone = clamp_resource_amount(current_user.stone + stone_amount)
-    db.session.add(stone)
-    db.session.add(ActionLog(user_id=current_user.id, message=f"Pedra minerada: +{min(stone_amount, RESOURCE_MAX_AMOUNT)} pedra."))
-    db.session.commit()
+    database.update_stone(stone)
+    database.update_user_resources(current_user)
+    database.add_action_log(current_user.id, f"Pedra minerada: +{min(stone_amount, RESOURCE_MAX_AMOUNT)} pedra.")
     return jsonify({"ok": True, "stone": current_user.stone, "respawn_seconds": RESOURCE_RESPAWN_SECONDS})
 
 
-@game_bp.route('/api/inventory/remove', methods=['POST'])
+@game_bp.route("/api/inventory/remove", methods=["POST"])
 @login_required
 def api_inventory_remove():
-    data = request.get_json() or {}
-    resource = data.get('resource')
-    amount = data.get('amount', 1)
+    # Remove itens do inventário do utilizador.
+    database = get_db()
+    data = request.get_json(silent=True) or {}
+    resource = data.get("resource")
+    amount = data.get("amount", 1)
 
     try:
         amount = int(amount)
     except (TypeError, ValueError):
         return jsonify({"ok": False, "message": "Quantidade inválida."}), 400
 
-    if resource not in {'wood', 'stone'}:
+    if resource not in {"wood", "stone"}:
         return jsonify({"ok": False, "message": "Recurso inválido."}), 400
 
     if amount <= 0:
@@ -292,30 +328,25 @@ def api_inventory_remove():
         return jsonify({"ok": False, "message": "Inventário insuficiente."}), 400
 
     setattr(current_user, resource, current_value - amount)
-    label = 'madeira' if resource == 'wood' else 'pedra'
-    db.session.add(ActionLog(user_id=current_user.id, message=f"{amount} {label} removida do inventário."))
-    db.session.commit()
+    label = "madeira" if resource == "wood" else "pedra"
+    database.update_user_resources(current_user)
+    database.add_action_log(current_user.id, f"{amount} {label} removida do inventário.")
 
     return jsonify({"ok": True, "wood": current_user.wood, "stone": current_user.stone})
 
 
 def ensure_trees():
-    # default columns where trees should exist
-    default_columns = [2, 5, 9]
-    for c in default_columns:
-        if not Tree.query.filter_by(column=c).first():
-            db.session.add(Tree(column=c))
-    db.session.commit()
+    # Garante que as árvores padrão existem na base de dados.
+    get_db().ensure_trees()
 
 
 def ensure_stones():
-    # default columns where stones should exist
-    default_columns = [1, 4, 7, 10]
-    for c in default_columns:
-        if not Stone.query.filter_by(column=c).first():
-            db.session.add(Stone(column=c))
+    # Garante que as pedras padrão existem na base de dados.
+    get_db().ensure_stones()
+
 
 @game_bp.route("/img/<path:filename>")
 def image_file(filename):
+    # Serve imagens estáticas do jogo sem passar pelo directório static padrão.
     image_folder = os.path.join(os.path.dirname(__file__), "img")
     return send_from_directory(image_folder, filename)
