@@ -256,6 +256,25 @@ function initGame() {
     axeEl.style.bottom = (tileSize * mapRows - parseInt(tileSize / 12, 10) + Math.round(tileSize * 0.45)) + 'px';
   }
 
+  // _parseDatetime: ❌ fora (labs nao usam timestamps). Necessario para calcular tempo restante.
+  function _parseDatetime(str) {
+    if (!str) { return 0; }
+    var parts = str.split('T');
+    var dateParts = parts[0].split('-');
+    var timeParts = (parts[1] || '00:00:00').split(':');
+    var year = parseInt(dateParts[0], 10) || 0;
+    var month = (parseInt(dateParts[1], 10) - 1) || 0;
+    var day = parseInt(dateParts[2], 10) || 1;
+    var hour = parseInt(timeParts[0], 10) || 0;
+    var minute = parseInt(timeParts[1], 10) || 0;
+    // strip any fractional seconds or timezone suffix (e.g. "05.123Z" or "05+01:00")
+    var secPart = (timeParts[2] || '0').toString().replace(/[^0-9].*$/, '');
+    var second = parseInt(secPart, 10) || 0;
+
+    // Use UTC to match server's datetime.utcnow() values
+    return Date.UTC(year, month, day, hour, minute, second);
+  }
+
   // Move o Steve para a esquerda ou direita.
   // classList.add/remove: Lab 05 ✅.
   function moveSteeve(direction) {
@@ -274,6 +293,31 @@ function initGame() {
 
   function getPlayerTile() {
     return steeveTile;
+  }
+
+  // Atualiza todos os timers de slots que tenham `data-ready-at` sem refazer o estado do servidor.
+  // Mantém a contagem regressiva fluida entre refreshes do payload.
+  function updateSlotTimers() {
+    var states = document.getElementsByClassName('slot-state');
+    for (var i = 0; i < states.length; i++) {
+      var el = states[i];
+      var secondsLeft = parseInt(el.getAttribute('data-seconds-left'), 10);
+      if (isNaN(secondsLeft)) continue;
+      if (secondsLeft <= 0) {
+        el.removeAttribute('data-seconds-left');
+        continue;
+      }
+      secondsLeft -= 1;
+      el.setAttribute('data-seconds-left', '' + secondsLeft);
+      var mins = Math.floor(secondsLeft / 60);
+      var secs = secondsLeft % 60;
+      var baseLabel = el.classList.contains('working') ? 'A processar' : 'A construir';
+      el.textContent = baseLabel + ' (' + (mins > 0 ? mins + 'm ' : '') + secs + 's)';
+      if (secondsLeft === 0) {
+        // remove attribute; server refresh will update real state
+        el.removeAttribute('data-seconds-left');
+      }
+    }
   }
 
   // Verifica se o jogador está a 1 tile de distância (dentro da matéria: lógica JS básica ✅).
@@ -377,6 +421,16 @@ function initGame() {
       state.className = 'slot-state ' + slot.state;
       state.textContent = formatState(slot.state);
 
+      if ((slot.state === 'working' || slot.state === 'building') && typeof slot.seconds_left !== 'undefined') {
+        // usa seconds_left enviado pelo servidor (inteiro em segundos)
+        var diff = Math.max(0, parseInt(slot.seconds_left, 10) || 0);
+        state.setAttribute('data-seconds-left', '' + diff);
+        var mins = Math.floor(diff / 60);
+        var secs = diff % 60;
+        var baseLabel = slot.state === 'working' ? 'A processar' : 'A construir';
+        state.textContent = baseLabel + ' (' + (mins > 0 ? mins + 'm ' : '') + secs + 's)';
+      }
+
       header.appendChild(title);
       header.appendChild(state);
       card.appendChild(header);
@@ -392,14 +446,6 @@ function initGame() {
         costEl.className = 'slot-cost';
         costEl.textContent = 'Custo: ' + costWood + ' madeira' + (costStone > 0 ? ' · ' + costStone + ' pedra' : '');
         card.appendChild(costEl);
-      }
-
-      if (slot.state === 'busy' && slot.ready_at) {
-        var timerEl = document.createElement('div');
-        timerEl.className = 'slot-timer';
-        timerEl.setAttribute('data-ready-at', slot.ready_at);
-        timerEl.textContent = 'A decorrer...';
-        card.appendChild(timerEl);
       }
 
       actionBox.className = 'slot-actions';
@@ -758,6 +804,12 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
   setInterval(function () {
     refreshState();
   }, 1000);
+
+  // Atualização local dos timers para manter a contagem regressiva fluida entre refreshes.
+  setInterval(function () {
+    updateSlotTimers();
+  }, 1000);
+
 }
 
 initGame();

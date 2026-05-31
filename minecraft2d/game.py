@@ -147,7 +147,14 @@ def api_state():
 
     slots = []
     for slot in database.list_user_slots(current_user.id):
-        slots.append(slot_payload(slot))
+        payload = slot_payload(slot)
+        # calcula seconds_left no servidor para não depender de parsing no cliente
+        if slot.ready_at:
+            seconds_left = int(max(0, (slot.ready_at - now).total_seconds()))
+        else:
+            seconds_left = 0
+        payload["seconds_left"] = seconds_left
+        slots.append(payload)
 
     logs_list = []
     for log in logs:
