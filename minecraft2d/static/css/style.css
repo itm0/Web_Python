@@ -82,6 +82,33 @@ img {
   text-decoration: none;
 }
 
+.logout-form {
+  display: inline-flex;
+  margin: 0;
+}
+
+.nav-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.1rem;
+  padding: 0.35rem 0.85rem;
+  border: 2px solid rgba(18, 18, 18, 0.95);
+  border-radius: 0.15rem;
+  background: #8b8b8b;
+  color: #f3f3f3;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.45);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.22), inset -2px -2px 0 rgba(0, 0, 0, 0.34);
+  cursor: pointer;
+}
+
+.nav-link-button:hover {
+  background: #777;
+  color: #ffffa0;
+}
+
 .flash-stack {
   width: min(1200px, calc(100% - 2rem));
   margin: 1rem auto 0;

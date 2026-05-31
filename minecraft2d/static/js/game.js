@@ -1,4 +1,6 @@
+  // O código só começa depois de a página carregar os elementos HTML.
 document.addEventListener('DOMContentLoaded', function () {
+  // Guardamos referências aos elementos da interface para os atualizar depois.
   var steeve = document.querySelector('#steeve');
   var sceneFrame = document.querySelector('#scene-frame');
   var sceneGrid = document.querySelector('#scene-grid');
@@ -11,19 +13,25 @@ document.addEventListener('DOMContentLoaded', function () {
   var buildingButtons = document.querySelectorAll('.building-option[data-building-key]');
   var inventoryRemoveButtons = document.querySelectorAll('.inventory-remove');
 
+  // Estas variáveis controlam o tamanho do mapa, a posição do jogador e o estado da interface.
   var tileSize = 96;
   var mapColumns = 12;
   var minimumColumns = 12;
   var mapRows = 2;
   var selectedBuildingKey = 'cabana';
+  // A posição é guardada no navegador para não se perder quando a página recarrega.
   var steeveTile = Number(localStorage.getItem('steeve-tile')) || 2;
   var walkLimit = mapColumns - 1;
   var latestStatePayload = null;
+  var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') || '' : '';
+  // Guardamos os valores anteriores para perceber se o inventário mudou.
   var previousInventory = {
     wood: -1,
     stone: -1
   };
 
+  // Esta função define o tamanho base dos tiles conforme o tamanho do ecrã.
   function getBaseTileSize() {
     if (window.innerWidth <= 720) {
       return 72;
@@ -32,6 +40,7 @@ document.addEventListener('DOMContentLoaded', function () {
     return 96;
   }
 
+  // Aqui adaptamos o mapa ao espaço disponível e evitamos que o jogador saia fora da área.
   function updateSceneMetrics() {
     var frameWidth = 0;
     var computedColumns = 0;
@@ -45,7 +54,7 @@ document.addEventListener('DOMContentLoaded', function () {
     frameWidth = sceneFrame.clientWidth || sceneFrame.getBoundingClientRect().width || (minimumColumns * tileSize);
 
     if (window.innerWidth <= 430) {
-      // Keep all mandatory columns visible on narrow mobile viewports.
+      // Mantém as colunas obrigatórias visíveis em ecrãs estreitos.
       tileSize = Math.max(32, Math.floor(frameWidth / minimumColumns));
     } else {
       tileSize = getBaseTileSize();
@@ -60,6 +69,8 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  // Desenha o cenário completo com tiles, pedras e posições.
+  // Esta parte trata da interface do utilizador.
   function buildScene(stones) {
     var row;
     var column;
@@ -93,6 +104,7 @@ document.addEventListener('DOMContentLoaded', function () {
         tile.style.width = tileSize + 'px';
         tile.style.height = tileSize + 'px';
 
+        // Clique direto no tile para minerar pedra.
         if (stone && stone.available) {
           tile.className = 'scene-tile scene-stone';
           tile.style.zIndex = '2';
@@ -110,8 +122,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
             if (clicked.dataset.mined) return;
 
-            var playerTile = (typeof steeveTile !== 'undefined') ? steeveTile : Number(localStorage.getItem('steeve-tile')) || 0;
-            if (Math.abs(playerTile - col) > 1) {
+            if (!canInteractWithColumn(col)) {
               alert('Estás muito longe da pedra. Aproxima-te 1 tile.');
               return;
             }
@@ -119,15 +130,10 @@ document.addEventListener('DOMContentLoaded', function () {
             clicked.dataset.mined = '1';
             clicked.style.pointerEvents = 'none';
 
-            fetch('/api/mine-stone', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ column: col })
-            })
-              .then(function (r) { return r.json(); })
+            requestJson('/api/mine-stone', { column: col })
               .then(function (payload) {
-                if (!payload || !payload.ok) {
-                  alert((payload && payload.message) || 'Não foi possível minerar a pedra.');
+                if (!payload.ok) {
+                  alert(payload.payload.message || 'Não foi possível minerar a pedra.');
                   clicked.dataset.mined = '';
                   clicked.style.pointerEvents = 'auto';
                   return;
@@ -136,9 +142,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 clicked.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
                 clicked.style.opacity = '0.35';
                 clicked.style.transform = 'translateY(-12px) scale(0.95)';
-                if (stoneCount) {
-                  stoneCount.textContent = String(payload.stone);
-                }
+                updateCounter('#stone-count', payload.payload.stone);
 
                 setTimeout(function () {
                   refreshState();
@@ -151,6 +155,7 @@ document.addEventListener('DOMContentLoaded', function () {
           });
         }
 
+        // Contador visual por cima da pedra enquanto espera.
         if (stone && !stone.available) {
           var stoneBadge = document.createElement('div');
           stoneBadge.className = 'stone-timer-badge';
@@ -170,11 +175,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
         sceneGrid.appendChild(tile);
 
-        // trees are rendered by server-driven renderer (renderTrees)
+        // As árvores são desenhadas pela função renderTrees.
       }
     }
   }
 
+  // Animação visual para remover elementos da interface.
   function deleteItem(element, options) {
     var node = element;
     var delay = 0;
@@ -201,6 +207,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }, delay);
   }
 
+  // Posicionamento visual do personagem no mapa.
   function setSteevePosition() {
     if (!steeve) {
       return;
@@ -221,6 +228,7 @@ document.addEventListener('DOMContentLoaded', function () {
     localStorage.setItem('steeve-tile', String(steeveTile));
   }
 
+  // Movimento do personagem com base em teclas.
   function moveSteeve(direction) {
     steeveTile += direction;
 
@@ -235,6 +243,42 @@ document.addEventListener('DOMContentLoaded', function () {
     setSteevePosition();
   }
 
+  // Devolve a coluna atual do jogador a partir do estado já guardado no JS.
+  function getPlayerTile() {
+    return steeveTile;
+  }
+
+  // Confirma se o jogador está perto o suficiente para interagir com uma coluna.
+  function canInteractWithColumn(column) {
+    return Math.abs(getPlayerTile() - column) <= 1;
+  }
+
+  // Faz um pedido JSON ao servidor e devolve o resultado já organizado.
+  function requestJson(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken
+      },
+      body: JSON.stringify(body || {})
+    }).then(function (response) {
+      return response.json().then(function (payload) {
+        return { ok: response.ok, payload: payload };
+      });
+    });
+  }
+
+  // Atualiza um contador simples na interface.
+  function updateCounter(selector, value) {
+    var node = document.querySelector(selector);
+
+    if (node) {
+      node.textContent = String(value);
+    }
+  }
+
+  // Traduz o estado interno do slot para texto legível na interface.
   function formatState(state) {
     if (state === 'building') {
       return 'A construir';
@@ -255,6 +299,7 @@ document.addEventListener('DOMContentLoaded', function () {
     return 'Vazio';
   }
 
+  // Painel visual com o histórico de ações.
   function renderLogs(logs) {
     if (!logsList) {
       return;
@@ -280,6 +325,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Interface dinâmica dos slots de construção.
   function renderSlots(slots, buildings) {
     if (!slotsGrid) {
       return;
@@ -314,6 +360,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
       actionBox.className = 'slot-actions';
 
+      // Botão de construção criado dinamicamente.
       if (slot.state === 'empty') {
         var buildButton = document.createElement('button');
         buildButton.className = 'slot-action build';
@@ -324,6 +371,7 @@ document.addEventListener('DOMContentLoaded', function () {
         actionBox.appendChild(buildButton);
       }
 
+      // Botão para iniciar tarefa.
       if (slot.state === 'ready') {
         var taskButton = document.createElement('button');
         taskButton.className = 'slot-action task';
@@ -334,6 +382,7 @@ document.addEventListener('DOMContentLoaded', function () {
         actionBox.appendChild(taskButton);
       }
 
+      // Botão de recolha mostrado na interface.
       if (slot.state === 'collectable') {
         var collectButton = document.createElement('button');
         collectButton.className = 'slot-action collect';
@@ -349,6 +398,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Cria visualmente cada caixa do inventário.
   function createInventorySlot(item) {
     var slot = document.createElement('div');
     slot.className = 'inventory-slot';
@@ -379,6 +429,7 @@ document.addEventListener('DOMContentLoaded', function () {
     return slot;
   }
 
+  // Organização visual do inventário na página.
   function renderInventory(user) {
     var totalMainSlots = 27;
     var totalHotbarSlots = 9;
@@ -419,6 +470,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  // Atualiza toda a interface com dados do servidor.
   function renderState(payload) {
     latestStatePayload = payload;
     renderInventory(payload.user);
@@ -439,9 +491,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
+  // Árvores e tocos desenhados com lógica visual.
   function renderTrees(trees) {
     if (!sceneGrid) return;
-    // remove existing dynamic trees/stumps
+  // Remove árvores e tocos desenhados anteriormente.
     var existing = sceneGrid.querySelectorAll('.scene-tree, .scene-tree-stump');
     existing.forEach(function (n) { try { n.remove(); } catch (e) {} });
 
@@ -450,6 +503,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var row = mapRows - 1;
 
       if (t.available) {
+        // Clique direto na árvore para cortar madeira.
         var tree = document.createElement('img');
         tree.className = 'scene-tree';
         tree.src = '/img/tree.png';
@@ -472,8 +526,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
           if (clicked.dataset.chopped) return;
 
-          var playerTile = (typeof steeveTile !== 'undefined') ? steeveTile : Number(localStorage.getItem('steeve-tile')) || 0;
-          if (Math.abs(playerTile - col) > 1) {
+          if (!canInteractWithColumn(col)) {
             alert('Estás muito longe da árvore. Aproxima-te 1 tile.');
             return;
           }
@@ -481,15 +534,10 @@ document.addEventListener('DOMContentLoaded', function () {
           clicked.dataset.chopped = '1';
           clicked.style.pointerEvents = 'none';
 
-          fetch('/api/chop', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ column: col })
-          })
-            .then(function (r) { return r.json(); })
+          requestJson('/api/chop', { column: col })
             .then(function (payload) {
-              if (!payload || !payload.ok) {
-                alert((payload && payload.message) || 'Não foi possível cortar a árvore.');
+              if (!payload.ok) {
+                alert(payload.payload.message || 'Não foi possível cortar a árvore.');
                 clicked.dataset.chopped = '';
                 clicked.style.pointerEvents = 'auto';
                 return;
@@ -498,8 +546,7 @@ document.addEventListener('DOMContentLoaded', function () {
               clicked.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
               clicked.style.opacity = '0.35';
               clicked.style.transform = 'translateY(-20px) scale(0.9)';
-              var wc = document.querySelector('#wood-count');
-              if (wc) wc.textContent = String(payload.wood);
+              updateCounter('#wood-count', payload.payload.wood);
               deleteItem(clicked, { delay: 300 });
               setTimeout(function () { try { clicked.remove(); } catch (e) {} }, 400);
             }).catch(function () {
@@ -511,7 +558,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         sceneGrid.appendChild(tree);
       } else {
-        // render stump + timer badge
+        // Desenha o toco e o contador de tempo.
+        // Toco com contador visual até a árvore voltar.
         var stump = document.createElement('div');
         stump.className = 'scene-tree-stump';
         stump.dataset.col = String(column);
@@ -541,6 +589,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Pedido assíncrono para obter o estado atual.
   function refreshState() {
     fetch('/api/state')
       .then(function (response) {
@@ -551,22 +600,12 @@ document.addEventListener('DOMContentLoaded', function () {
       });
   }
 
+  // Função genérica para enviar ações ao servidor através de fetch.
   function sendAction(url, body) {
-    fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body || {})
-    })
+    requestJson(url, body)
       .then(function (response) {
-        return response.json().then(function (payload) {
-          return { ok: response.ok, payload: payload };
-        });
-      })
-      .then(function (result) {
-        if (!result.ok) {
-          alert(result.payload.message || 'Ocorreu um erro.');
+        if (!response.ok) {
+          alert(response.payload.message || 'Ocorreu um erro.');
           return;
         }
 
@@ -574,6 +613,7 @@ document.addEventListener('DOMContentLoaded', function () {
       });
   }
 
+  // Remove recursos do inventário através da interface.
   function removeInventoryResource(resource, amount) {
     sendAction('/api/inventory/remove', {
       resource: resource,
@@ -581,18 +621,22 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
 
+  // Inicia a construção de um slot na interface.
   function buildSlot(slotId) {
     sendAction('/api/build/' + slotId, { building_key: selectedBuildingKey });
   }
 
+  // Inicia uma tarefa através do botão.
   function startTask(slotId) {
     sendAction('/api/task/' + slotId + '/start', {});
   }
 
+  // Recolhe a recompensa através da interface.
   function collectTask(slotId) {
     sendAction('/api/task/' + slotId + '/collect', {});
   }
 
+  // Ajustes finais do cenário.
   if (sceneFrame) {
     sceneFrame.style.width = '100%';
     sceneFrame.style.maxWidth = 'none';
@@ -602,9 +646,11 @@ document.addEventListener('DOMContentLoaded', function () {
     steeve.style.zIndex = '3';
   }
 
+  // Primeiro desenho vazio; depois o estado vem do servidor.
   buildScene([]);
   setSteevePosition();
 
+  // Seleção da construção ativa na interface.
   buildingButtons.forEach(function (button) {
     button.addEventListener('click', function () {
       buildingButtons.forEach(function (item) {
@@ -616,6 +662,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
+  // Movimento do personagem pelo teclado.
   document.addEventListener('keydown', function (event) {
     if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
       moveSteeve(-1);
@@ -626,10 +673,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  // Marca a primeira construção como selecionada por defeito.
   if (buildingButtons[0]) {
     buildingButtons[0].classList.add('selected');
   }
 
+  // Redesenha o cenário quando a janela muda de tamanho.
   window.addEventListener('resize', function () {
     if (!sceneFrame) {
       return;
@@ -644,6 +693,7 @@ document.addEventListener('DOMContentLoaded', function () {
     setSteevePosition();
   });
 
+  // Botões do inventário para gastar recursos rapidamente.
   inventoryRemoveButtons.forEach(function (button) {
     button.addEventListener('click', function () {
       var resource = button.getAttribute('data-resource');
@@ -652,5 +702,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   });
 
+  // Carrega o estado inicial do jogo quando a página abre.
   refreshState();
+
+  // Atualiza periodicamente o estado do jogo.
+  setInterval(function () {
+    refreshState();
+  }, 1000);
 });
