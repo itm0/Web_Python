@@ -1,46 +1,53 @@
-from __future__ import annotations
-
 import os
 import sqlite3
-from dataclasses import dataclass
+
 from datetime import datetime
-from typing import Optional
 
 from flask_login import UserMixin
-from werkzeug.security import check_password_hash, generate_password_hash
+from passlib.hash import pbkdf2_sha256 as hasher
 
 
 def _parse_datetime(value):
-    if value in (None, ""):
+    if value is None or value == "":
         return None
-    if isinstance(value, datetime):
+    if type(value) == datetime:
         return value
-    return datetime.fromisoformat(value)
+    parts = value.split("T")
+    date_parts = parts[0].split("-")
+    time_parts = parts[1].split(":") if len(parts) > 1 else ["0", "0", "0"]
+    return datetime(
+        int(date_parts[0]),
+        int(date_parts[1]),
+        int(date_parts[2]),
+        int(time_parts[0]),
+        int(time_parts[1]),
+        int(time_parts[2]) if len(time_parts) > 2 else 0,
+    )
 
 
 def _format_datetime(value):
     if value is None:
         return None
-    if isinstance(value, str):
+    if type(value) == str:
         return value
-    return value.isoformat(timespec="seconds")
+    return "%04d-%02d-%02dT%02d:%02d:%02d" % (value.year, value.month, value.day, value.hour, value.minute, value.second)
 
 
-@dataclass
 class User(UserMixin):
-    id: int
-    username: str
-    email: str
-    password_hash: str
-    wood: int = 26
-    stone: int = 26
-    created_at: Optional[datetime] = None
+    def __init__(self, id, username, email, password_hash, wood=26, stone=26, created_at=None):
+        self.id = id
+        self.username = username
+        self.email = email
+        self.password_hash = password_hash
+        self.wood = wood
+        self.stone = stone
+        self.created_at = created_at
 
     def set_password(self, password):
-        self.password_hash = generate_password_hash(password, method="pbkdf2:sha256")
+        self.password_hash = hasher.hash(password)
 
     def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
+        return hasher.verify(password, self.password_hash)
 
     @classmethod
     def from_row(cls, row):
@@ -57,17 +64,17 @@ class User(UserMixin):
         )
 
 
-@dataclass
 class BuildingSlot:
-    id: int
-    user_id: int
-    slot_number: int
-    building_type: Optional[str] = None
-    state: str = "empty"
-    action_type: Optional[str] = None
-    started_at: Optional[datetime] = None
-    ready_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    def __init__(self, id, user_id, slot_number, building_type=None, state="empty", action_type=None, started_at=None, ready_at=None, created_at=None):
+        self.id = id
+        self.user_id = user_id
+        self.slot_number = slot_number
+        self.building_type = building_type
+        self.state = state
+        self.action_type = action_type
+        self.started_at = started_at
+        self.ready_at = ready_at
+        self.created_at = created_at
 
     @classmethod
     def from_row(cls, row):
@@ -86,12 +93,12 @@ class BuildingSlot:
         )
 
 
-@dataclass
 class ActionLog:
-    id: int
-    user_id: int
-    message: str
-    created_at: Optional[datetime] = None
+    def __init__(self, id, user_id, message, created_at=None):
+        self.id = id
+        self.user_id = user_id
+        self.message = message
+        self.created_at = created_at
 
     @classmethod
     def from_row(cls, row):
@@ -105,13 +112,13 @@ class ActionLog:
         )
 
 
-@dataclass
 class Tree:
-    id: int
-    column: int
-    chopped_at: Optional[datetime] = None
-    removed_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    def __init__(self, id, column, chopped_at=None, removed_at=None, created_at=None):
+        self.id = id
+        self.column = column
+        self.chopped_at = chopped_at
+        self.removed_at = removed_at
+        self.created_at = created_at
 
     @classmethod
     def from_row(cls, row):
@@ -126,13 +133,13 @@ class Tree:
         )
 
 
-@dataclass
 class Stone:
-    id: int
-    column: int
-    mined_at: Optional[datetime] = None
-    removed_at: Optional[datetime] = None
-    created_at: Optional[datetime] = None
+    def __init__(self, id, column, mined_at=None, removed_at=None, created_at=None):
+        self.id = id
+        self.column = column
+        self.mined_at = mined_at
+        self.removed_at = removed_at
+        self.created_at = created_at
 
     @classmethod
     def from_row(cls, row):
@@ -158,7 +165,7 @@ class Database:
     def _connect(self):
         connection = sqlite3.connect(self.dbfile)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
+
         return connection
 
     def create_table(self):
@@ -243,6 +250,31 @@ class Database:
                     """,
                     (column, _format_datetime(datetime.utcnow())),
                 )
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS buildings (
+                    key VARCHAR(40) PRIMARY KEY,
+                    name VARCHAR(80) NOT NULL,
+                    cost_wood INTEGER NOT NULL,
+                    cost_stone INTEGER NOT NULL,
+                    construction_seconds INTEGER NOT NULL,
+                    task_name VARCHAR(80) NOT NULL,
+                    task_seconds INTEGER NOT NULL,
+                    reward_wood INTEGER NOT NULL DEFAULT 0,
+                    reward_stone INTEGER NOT NULL DEFAULT 0,
+                    description VARCHAR(255)
+                )
+                """
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO buildings VALUES ('cabana','Cabana',15,5,20,'Recolher madeira',20,8,0,'Produz madeira e mantém a aldeia viva.')"
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO buildings VALUES ('mina','Mina',10,15,25,'Minerar pedra',25,0,10,'Gera pedra para novas construções.')"
+            )
+            cursor.execute(
+                "INSERT OR IGNORE INTO buildings VALUES ('forja','Forja',20,10,30,'Reforjar ferramentas',30,4,4,'Equilibra madeira e pedra em progresso.')"
+            )
             self.drop_legacy_tables(cursor)
             connection.commit()
 
@@ -251,7 +283,7 @@ class Database:
             cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
 
     def create_user(self, username, email, password):
-        password_hash = generate_password_hash(password, method="pbkdf2:sha256")
+        password_hash = hasher.hash(password)
         created_at = _format_datetime(datetime.utcnow())
         with self._connect() as connection:
             cursor = connection.cursor()
@@ -387,6 +419,45 @@ class Database:
             )
             connection.commit()
 
+    def get_buildings(self):
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM buildings ORDER BY key"
+            ).fetchall()
+        result = {}
+        for row in rows:
+            result[row["key"]] = {
+                "name": row["name"],
+                "cost_wood": row["cost_wood"],
+                "cost_stone": row["cost_stone"],
+                "construction_seconds": row["construction_seconds"],
+                "task_name": row["task_name"],
+                "task_seconds": row["task_seconds"],
+                "reward_wood": row["reward_wood"],
+                "reward_stone": row["reward_stone"],
+                "description": row["description"],
+            }
+        return result
+
+    def get_building(self, key):
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM buildings WHERE key = ?", (key,)
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "name": row["name"],
+            "cost_wood": row["cost_wood"],
+            "cost_stone": row["cost_stone"],
+            "construction_seconds": row["construction_seconds"],
+            "task_name": row["task_name"],
+            "task_seconds": row["task_seconds"],
+            "reward_wood": row["reward_wood"],
+            "reward_stone": row["reward_stone"],
+            "description": row["description"],
+        }
+
     def list_action_logs(self, user_id, limit=8):
         with self._connect() as connection:
             rows = connection.execute(
@@ -426,6 +497,8 @@ class Database:
                     (column, _format_datetime(datetime.utcnow())),
                 )
             connection.commit()
+
+    DEFAULT_SLOT_COUNT = 4
 
     def list_trees(self, include_removed=False):
         query = "SELECT * FROM trees"

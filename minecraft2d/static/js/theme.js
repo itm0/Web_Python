@@ -1,11 +1,15 @@
-document.addEventListener('DOMContentLoaded', function () {
-  var themeToggle = document.querySelector('#theme-toggle');
+function initTheme() {
+  var themeToggle = document.getElementById('theme-toggle');
   var storageKey = 'minecraft2d-theme';
 
   function applyTheme(theme) {
     var isDark = theme === 'dark';
 
-    document.body.classList.toggle('dark-mode', isDark);
+    if (isDark) {
+      document.body.className = document.body.className + ' dark-mode';
+    } else {
+      document.body.className = document.body.className.replace(' dark-mode', '');
+    }
 
     if (themeToggle) {
       themeToggle.textContent = isDark ? 'Modo claro' : 'Modo escuro';
@@ -27,9 +31,11 @@ document.addEventListener('DOMContentLoaded', function () {
     return;
   }
 
-  themeToggle.addEventListener('click', function () {
-    var nextTheme = document.body.classList.contains('dark-mode') ? 'light' : 'dark';
+  themeToggle.onclick = function () {
+    var nextTheme = document.body.className.indexOf('dark-mode') !== -1 ? 'light' : 'dark';
     localStorage.setItem(storageKey, nextTheme);
     applyTheme(nextTheme);
-  });
-});
+  };
+}
+
+initTheme();

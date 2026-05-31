@@ -1,70 +1,35 @@
 import os
-import secrets
-import shutil
 
-from flask import Flask, abort, request, session
-from flask_login import current_user
+from flask import Flask
 
 from extensions import login_manager
 from models import Database
 
 
-class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-minecraft-2d")
+app = Flask(__name__)
+app.config["SECRET_KEY"] = "dev-minecraft-2d"
 
+models_dir = os.path.join(os.path.dirname(__file__), "models")
+database_path = os.path.join(models_dir, "minecraft2d.sqlite")
+database = Database(database_path)
+app.config["db"] = database
+login_manager.init_app(app)
 
-def create_app():
-    app = Flask(__name__)
-    app.config.from_object(Config)
-    os.makedirs(app.instance_path, exist_ok=True)
+from auth import login, logout, register
+from game import api_build, api_chop, api_inventory_remove, api_mine_stone, api_state, api_task_collect, api_task_start, dashboard
 
-    models_dir = os.path.join(os.path.dirname(__file__), "models")
-    database_path = os.path.join(models_dir, "minecraft2d.sqlite")
-    legacy_database_path = os.path.join(app.instance_path, "minecraft2d.db")
-
-    if not os.path.exists(database_path) and os.path.exists(legacy_database_path):
-        shutil.copy2(legacy_database_path, database_path)
-
-    database = Database(database_path)
-    app.config["db"] = database
-    login_manager.init_app(app)
-
-    from auth import auth_bp
-    from game import game_bp
-
-    app.register_blueprint(auth_bp)
-    app.register_blueprint(game_bp)
-
-    @app.context_processor
-    def inject_user():
-        return {"current_game_user": current_user, "csrf_token": generate_csrf_token}
-
-    @app.before_request
-    def protect_mutating_requests():
-        if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
-            return None
-
-        token = request.form.get("_csrf_token") or request.headers.get("X-CSRF-Token")
-        if not token or token != session.get("_csrf_token"):
-            abort(400)
-
-        return None
-
-    return app
-
-
-def generate_csrf_token():
-    token = session.get("_csrf_token")
-    if token is None:
-        token = secrets.token_urlsafe(32)
-        session["_csrf_token"] = token
-    return token
-
-
-app = create_app()
-
+app.add_url_rule("/", view_func=dashboard)
+app.add_url_rule("/dashboard", view_func=dashboard)
+app.add_url_rule("/api/state", view_func=api_state)
+app.add_url_rule("/api/build/<int:slot_id>", view_func=api_build, methods=["POST"])
+app.add_url_rule("/api/task/<int:slot_id>/start", view_func=api_task_start, methods=["POST"])
+app.add_url_rule("/api/task/<int:slot_id>/collect", view_func=api_task_collect, methods=["POST"])
+app.add_url_rule("/api/chop", view_func=api_chop, methods=["POST"])
+app.add_url_rule("/api/mine-stone", view_func=api_mine_stone, methods=["POST"])
+app.add_url_rule("/api/inventory/remove", view_func=api_inventory_remove, methods=["POST"])
+app.add_url_rule("/register", view_func=register, methods=["GET", "POST"])
+app.add_url_rule("/login", view_func=login, methods=["GET", "POST"])
+app.add_url_rule("/logout", view_func=logout, methods=["GET", "POST"])
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", "8000"))
-    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
-    app.run(debug=debug, host="127.0.0.1", port=port)
+    app.run(debug=False, host="127.0.0.1", port=8000)

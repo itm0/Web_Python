@@ -9,7 +9,7 @@
     </div>
     <div id="scene-frame" class="scene-frame">
       <div id="scene-grid" class="scene-grid"></div>
-      <img src="{{ url_for('game.image_file', filename='steeve.png') }}" alt="Steve" id="steeve" class="steeve-sprite">
+      <img src="{{ url_for('static', filename='img/steeve.png') }}" alt="Steve" id="steeve" class="steeve-sprite">
     </div>
   </article>
 
@@ -54,6 +54,6 @@
   <div id="logs-list" class="logs-list"></div>
 </section>
 
-<script id="game-buildings" type="application/json">{{ buildings | tojson }}</script>
+<script id="game-buildings" type="application/json">{{ buildings_json | safe }}</script>
 <script src="{{ url_for('static', filename='js/game.js') }}"></script>
 {% endblock %}

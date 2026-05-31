@@ -1,17 +1,14 @@
   // O código só começa depois de a página carregar os elementos HTML.
-document.addEventListener('DOMContentLoaded', function () {
+function initGame() {
   // Guardamos referências aos elementos da interface para os atualizar depois.
-  var steeve = document.querySelector('#steeve');
-  var sceneFrame = document.querySelector('#scene-frame');
-  var sceneGrid = document.querySelector('#scene-grid');
-  var woodCount = document.querySelector('#wood-count');
-  var stoneCount = document.querySelector('#stone-count');
-  var inventoryMain = document.querySelector('#inventory-main');
-  var inventoryHotbar = document.querySelector('#inventory-hotbar');
-  var slotsGrid = document.querySelector('#slots-grid');
-  var logsList = document.querySelector('#logs-list');
-  var buildingButtons = document.querySelectorAll('.building-option[data-building-key]');
-  var inventoryRemoveButtons = document.querySelectorAll('.inventory-remove');
+  var steeve = document.getElementById('steeve');
+  var sceneFrame = document.getElementById('scene-frame');
+  var sceneGrid = document.getElementById('scene-grid');
+  var inventoryMain = document.getElementById('inventory-main');
+  var inventoryHotbar = document.getElementById('inventory-hotbar');
+  var slotsGrid = document.getElementById('slots-grid');
+  var logsList = document.getElementById('logs-list');
+  var buildingButtons = document.getElementsByClassName('building-option');
 
   // Estas variáveis controlam o tamanho do mapa, a posição do jogador e o estado da interface.
   var tileSize = 96;
@@ -20,11 +17,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var mapRows = 2;
   var selectedBuildingKey = 'cabana';
   // A posição é guardada no navegador para não se perder quando a página recarrega.
-  var steeveTile = Number(localStorage.getItem('steeve-tile')) || 2;
+  var steeveTile = parseInt(localStorage.getItem('steeve-tile'), 10) || 2;
   var walkLimit = mapColumns - 1;
   var latestStatePayload = null;
-  var csrfMeta = document.querySelector('meta[name="csrf-token"]');
-  var csrfToken = csrfMeta ? csrfMeta.getAttribute('content') || '' : '';
   // Guardamos os valores anteriores para perceber se o inventário mudou.
   var previousInventory = {
     wood: -1,
@@ -51,17 +46,20 @@ document.addEventListener('DOMContentLoaded', function () {
       return;
     }
 
-    frameWidth = sceneFrame.clientWidth || sceneFrame.getBoundingClientRect().width || (minimumColumns * tileSize);
+    frameWidth = sceneFrame.clientWidth || sceneFrame.getBoundingClientRect().width || window.innerWidth;
 
     if (window.innerWidth <= 430) {
       // Mantém as colunas obrigatórias visíveis em ecrãs estreitos.
-      tileSize = Math.max(32, Math.floor(frameWidth / minimumColumns));
+      var maxMin = frameWidth / minimumColumns;
+      tileSize = maxMin > 32 ? maxMin : 32;
+      tileSize = parseInt(tileSize, 10);
     } else {
       tileSize = getBaseTileSize();
     }
 
-    computedColumns = Math.ceil(frameWidth / tileSize);
-    mapColumns = Math.max(minimumColumns, computedColumns);
+    computedColumns = parseInt(frameWidth / tileSize, 10);
+    if (frameWidth % tileSize !== 0) { computedColumns = computedColumns + 1; }
+    mapColumns = minimumColumns > computedColumns ? minimumColumns : computedColumns;
     walkLimit = mapColumns - 1;
 
     if (steeveTile > walkLimit) {
@@ -84,9 +82,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
     sceneGrid.innerHTML = '';
 
-    (stones || []).forEach(function (stone) {
-      stoneByColumn[Number(stone.column)] = stone;
-    });
+    for (var si = 0; si < (stones || []).length; si++) {
+      var stone = (stones || [])[si];
+      stoneByColumn[parseInt(stone.column, 10)] = stone;
+    }
 
     for (row = 0; row < mapRows; row += 1) {
       for (column = 0; column < mapColumns; column += 1) {
@@ -96,9 +95,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var stone = isDirtRow ? stoneByColumn[column] : null;
 
         tile.className = 'scene-tile';
-        tile.src = isGrassRow ? '/img/relva.png' : (stone && stone.available ? '/img/stone.png' : '/img/terra.png');
+        tile.src = isGrassRow ? '/static/img/relva.png' : (stone && stone.available ? '/static/img/stone.png' : '/static/img/terra.png');
         tile.alt = isGrassRow ? 'Relva' : (stone && stone.available ? 'Pedra' : 'Terra');
-        tile.dataset.col = String(column);
+        tile.setAttribute('data-col', '' + column);
         tile.style.left = (column * tileSize) + 'px';
         tile.style.bottom = (row * tileSize) + 'px';
         tile.style.width = tileSize + 'px';
@@ -112,29 +111,26 @@ document.addEventListener('DOMContentLoaded', function () {
           tile.setAttribute('draggable', 'false');
           tile.setAttribute('tabindex', '-1');
 
-          tile.addEventListener('click', function (ev) {
-            ev.preventDefault();
-            ev.stopPropagation();
-
-            var clicked = ev.currentTarget || ev.target;
+          tile.onclick = function (ev) {
+            var clicked = ev.target;
             if (!clicked) return;
-            var col = Number(clicked.dataset.col);
+            var col = parseInt(clicked.getAttribute('data-col'), 10);
 
-            if (clicked.dataset.mined) return;
+            if (clicked.getAttribute('data-mined')) return;
 
             if (!canInteractWithColumn(col)) {
               alert('Estás muito longe da pedra. Aproxima-te 1 tile.');
               return;
             }
 
-            clicked.dataset.mined = '1';
+            clicked.setAttribute('data-mined', '1');
             clicked.style.pointerEvents = 'none';
 
             requestJson('/api/mine-stone', { column: col })
               .then(function (payload) {
                 if (!payload.ok) {
                   alert(payload.payload.message || 'Não foi possível minerar a pedra.');
-                  clicked.dataset.mined = '';
+                  clicked.setAttribute('data-mined', '');
                   clicked.style.pointerEvents = 'auto';
                   return;
                 }
@@ -142,24 +138,23 @@ document.addEventListener('DOMContentLoaded', function () {
                 clicked.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
                 clicked.style.opacity = '0.35';
                 clicked.style.transform = 'translateY(-12px) scale(0.95)';
-                updateCounter('#stone-count', payload.payload.stone);
 
                 setTimeout(function () {
                   refreshState();
                 }, 250);
               }).catch(function () {
                 alert('Erro de rede ao minerar a pedra.');
-                clicked.dataset.mined = '';
+                clicked.setAttribute('data-mined', '');
                 clicked.style.pointerEvents = 'auto';
               });
-          });
+          };
         }
 
         // Contador visual por cima da pedra enquanto espera.
         if (stone && !stone.available) {
           var stoneBadge = document.createElement('div');
           stoneBadge.className = 'stone-timer-badge';
-          stoneBadge.dataset.col = String(column);
+          stoneBadge.setAttribute('data-col', '' + column);
           stoneBadge.style.position = 'absolute';
           stoneBadge.style.left = (column * tileSize + 6) + 'px';
           stoneBadge.style.bottom = (row * tileSize + (tileSize * 0.9) + 2) + 'px';
@@ -169,7 +164,7 @@ document.addEventListener('DOMContentLoaded', function () {
           stoneBadge.style.padding = '4px 6px';
           stoneBadge.style.borderRadius = '6px';
           stoneBadge.style.fontSize = '12px';
-          stoneBadge.textContent = String(stone.seconds_left || 0);
+          stoneBadge.textContent = '' + (stone.seconds_left || 0);
           sceneGrid.appendChild(stoneBadge);
         }
 
@@ -197,12 +192,8 @@ document.addEventListener('DOMContentLoaded', function () {
     node.style.transform = 'scale(0.9)';
 
     setTimeout(function () {
-      try {
-        node.remove();
-      } catch (error) {
-        if (node.parentNode) {
-          node.parentNode.removeChild(node);
-        }
+      if (node.parentNode) {
+        node.parentNode.removeChild(node);
       }
     }, delay);
   }
@@ -222,10 +213,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     steeve.style.left = (steeveTile * tileSize) + 'px';
-    steeve.style.bottom = ((tileSize * mapRows) - 8) + 'px';
+    steeve.style.bottom = ((tileSize * mapRows) - parseInt(tileSize / 12, 10)) + 'px';
     steeve.style.width = 'auto';
     steeve.style.height = (tileSize * 1.375) + 'px';
-    localStorage.setItem('steeve-tile', String(steeveTile));
+    localStorage.setItem('steeve-tile', '' + steeveTile);
   }
 
   // Movimento do personagem com base em teclas.
@@ -250,7 +241,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
   // Confirma se o jogador está perto o suficiente para interagir com uma coluna.
   function canInteractWithColumn(column) {
-    return Math.abs(getPlayerTile() - column) <= 1;
+    var diff = getPlayerTile() - column;
+    return (diff >= -1 && diff <= 1);
   }
 
   // Faz um pedido JSON ao servidor e devolve o resultado já organizado.
@@ -258,8 +250,7 @@ document.addEventListener('DOMContentLoaded', function () {
     return fetch(url, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(body || {})
     }).then(function (response) {
@@ -267,15 +258,6 @@ document.addEventListener('DOMContentLoaded', function () {
         return { ok: response.ok, payload: payload };
       });
     });
-  }
-
-  // Atualiza um contador simples na interface.
-  function updateCounter(selector, value) {
-    var node = document.querySelector(selector);
-
-    if (node) {
-      node.textContent = String(value);
-    }
   }
 
   // Traduz o estado interno do slot para texto legível na interface.
@@ -307,22 +289,23 @@ document.addEventListener('DOMContentLoaded', function () {
 
     logsList.innerHTML = '';
 
-    logs.forEach(function (log) {
+    for (var li = 0; li < logs.length; li++) {
+      var log = logs[li];
       var card = document.createElement('article');
       var message = document.createElement('p');
       var time = document.createElement('time');
+      var d = new Date(log.created_at);
+      var h = d.getHours();
+      var m = d.getMinutes();
 
       card.className = 'log-card';
       message.textContent = log.message;
-      time.textContent = new Date(log.created_at).toLocaleTimeString('pt-PT', {
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      time.textContent = (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
 
       card.appendChild(message);
       card.appendChild(time);
       logsList.appendChild(card);
-    });
+    }
   }
 
   // Interface dinâmica dos slots de construção.
@@ -333,7 +316,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     slotsGrid.innerHTML = '';
 
-    slots.forEach(function (slot) {
+    for (var sli = 0; sli < slots.length; sli++) {
+      var slot = slots[sli];
       var building = slot.building_type ? buildings[slot.building_type] : null;
       var card = document.createElement('article');
       var header = document.createElement('div');
@@ -360,42 +344,41 @@ document.addEventListener('DOMContentLoaded', function () {
 
       actionBox.className = 'slot-actions';
 
-      // Botão de construção criado dinamicamente.
-      if (slot.state === 'empty') {
-        var buildButton = document.createElement('button');
-        buildButton.className = 'slot-action build';
-        buildButton.textContent = 'Construir aqui';
-        buildButton.addEventListener('click', function () {
-          buildSlot(slot.id);
-        });
-        actionBox.appendChild(buildButton);
-      }
+      (function (slotId) {
+        if (slot.state === 'empty') {
+          var buildButton = document.createElement('button');
+          buildButton.className = 'slot-action build';
+          buildButton.textContent = 'Construir aqui';
+          buildButton.onclick = function () {
+            buildSlot(slotId);
+          };
+          actionBox.appendChild(buildButton);
+        }
 
-      // Botão para iniciar tarefa.
-      if (slot.state === 'ready') {
-        var taskButton = document.createElement('button');
-        taskButton.className = 'slot-action task';
-        taskButton.textContent = 'Iniciar tarefa';
-        taskButton.addEventListener('click', function () {
-          startTask(slot.id);
-        });
-        actionBox.appendChild(taskButton);
-      }
+        if (slot.state === 'ready') {
+          var taskButton = document.createElement('button');
+          taskButton.className = 'slot-action task';
+          taskButton.textContent = 'Iniciar tarefa';
+          taskButton.onclick = function () {
+            startTask(slotId);
+          };
+          actionBox.appendChild(taskButton);
+        }
 
-      // Botão de recolha mostrado na interface.
-      if (slot.state === 'collectable') {
-        var collectButton = document.createElement('button');
-        collectButton.className = 'slot-action collect';
-        collectButton.textContent = 'Recolher recompensa';
-        collectButton.addEventListener('click', function () {
-          collectTask(slot.id);
-        });
-        actionBox.appendChild(collectButton);
-      }
+        if (slot.state === 'collectable') {
+          var collectButton = document.createElement('button');
+          collectButton.className = 'slot-action collect';
+          collectButton.textContent = 'Recolher recompensa';
+          collectButton.onclick = function () {
+            collectTask(slotId);
+          };
+          actionBox.appendChild(collectButton);
+        }
+      })(slot.id);
 
       card.appendChild(actionBox);
       slotsGrid.appendChild(card);
-    });
+    }
   }
 
   // Cria visualmente cada caixa do inventário.
@@ -421,7 +404,7 @@ document.addEventListener('DOMContentLoaded', function () {
     icon.setAttribute('draggable', 'false');
 
     amount.className = 'inventory-number';
-    amount.textContent = String(item.amount);
+    amount.textContent = '' + item.amount;
 
     itemNode.appendChild(icon);
     itemNode.appendChild(amount);
@@ -437,14 +420,14 @@ document.addEventListener('DOMContentLoaded', function () {
       {
         key: 'wood',
         label: 'Madeira',
-        amount: Number(user.wood || 0),
-        icon: 'https://gamepedia.cursecdn.com/minecraft_gamepedia/thumb/c/c5/Oak_Log_Axis_Y_JE5_BE3.png/150px-Oak_Log_Axis_Y_JE5_BE3.png?version=be4f749b0035ee90956bab6c5361eeb5'
+        amount: parseInt(user.wood || 0, 10),
+        icon: '/static/img/tree.png'
       },
       {
         key: 'stone',
         label: 'Pedra',
-        amount: Number(user.stone || 0),
-        icon: 'https://gamepedia.cursecdn.com/minecraft_gamepedia/thumb/6/6a/Cobblestone_JE6_BE3.png/150px-Cobblestone_JE6_BE3.png?version=5d7e2cc3c7485a77f63449e05baecc65'
+        amount: parseInt(user.stone || 0, 10),
+        icon: '/static/img/stone.png'
       }
     ];
     var index;
@@ -456,10 +439,11 @@ document.addEventListener('DOMContentLoaded', function () {
     inventoryMain.innerHTML = '';
     inventoryHotbar.innerHTML = '';
 
-    items.forEach(function (item) {
+    for (var ii = 0; ii < items.length; ii++) {
+      var item = items[ii];
       item.changed = previousInventory[item.key] !== item.amount;
       previousInventory[item.key] = item.amount;
-    });
+    }
 
     for (index = 0; index < totalMainSlots; index += 1) {
       inventoryMain.appendChild(createInventorySlot(items[index] || null));
@@ -475,14 +459,6 @@ document.addEventListener('DOMContentLoaded', function () {
     latestStatePayload = payload;
     renderInventory(payload.user);
 
-    if (woodCount) {
-      woodCount.textContent = String(payload.user.wood);
-    }
-
-    if (stoneCount) {
-      stoneCount.textContent = String(payload.user.stone);
-    }
-
     renderSlots(payload.slots, payload.buildings);
     renderLogs(payload.logs);
     buildScene(payload.stones || []);
@@ -495,20 +471,27 @@ document.addEventListener('DOMContentLoaded', function () {
   function renderTrees(trees) {
     if (!sceneGrid) return;
   // Remove árvores e tocos desenhados anteriormente.
-    var existing = sceneGrid.querySelectorAll('.scene-tree, .scene-tree-stump');
-    existing.forEach(function (n) { try { n.remove(); } catch (e) {} });
+    var existingTrees = sceneGrid.getElementsByClassName('scene-tree');
+var existingStumps = sceneGrid.getElementsByClassName('scene-tree-stump');
+var existing = [];
+for (var ei = 0; ei < existingTrees.length; ei++) { existing.push(existingTrees[ei]); }
+for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStumps[ei]); }
+    for (var ei2 = 0; ei2 < existing.length; ei2++) {
+      if (existing[ei2].parentNode) { existing[ei2].parentNode.removeChild(existing[ei2]); }
+    }
 
-    trees.forEach(function (t) {
-      var column = Number(t.column);
+    for (var ti = 0; ti < trees.length; ti++) {
+      var t = trees[ti];
+      var column = parseInt(t.column, 10);
       var row = mapRows - 1;
 
       if (t.available) {
         // Clique direto na árvore para cortar madeira.
         var tree = document.createElement('img');
         tree.className = 'scene-tree';
-        tree.src = '/img/tree.png';
+        tree.src = '/static/img/tree.png';
         tree.alt = 'Árvore';
-        tree.dataset.col = String(column);
+        tree.setAttribute('data-col', '' + column);
         tree.style.left = (column * tileSize + (tileSize / 8)) + 'px';
         tree.style.bottom = (row * tileSize + (tileSize * 0.9) + 2) + 'px';
         tree.style.width = (tileSize * 1.8) + 'px';
@@ -517,28 +500,26 @@ document.addEventListener('DOMContentLoaded', function () {
         tree.setAttribute('draggable', 'false');
         tree.setAttribute('tabindex', '-1');
 
-        tree.addEventListener('click', function (ev) {
-          ev.preventDefault();
-          ev.stopPropagation();
-          var clicked = ev.currentTarget || ev.target;
+        tree.onclick = function (ev) {
+          var clicked = ev.target;
           if (!clicked) return;
-          var col = Number(clicked.dataset.col);
+          var col = parseInt(clicked.getAttribute('data-col'), 10);
 
-          if (clicked.dataset.chopped) return;
+          if (clicked.getAttribute('data-chopped')) return;
 
           if (!canInteractWithColumn(col)) {
             alert('Estás muito longe da árvore. Aproxima-te 1 tile.');
             return;
           }
 
-          clicked.dataset.chopped = '1';
+          clicked.setAttribute('data-chopped', '1');
           clicked.style.pointerEvents = 'none';
 
           requestJson('/api/chop', { column: col })
             .then(function (payload) {
               if (!payload.ok) {
                 alert(payload.payload.message || 'Não foi possível cortar a árvore.');
-                clicked.dataset.chopped = '';
+                clicked.setAttribute('data-chopped', '');
                 clicked.style.pointerEvents = 'auto';
                 return;
               }
@@ -546,15 +527,14 @@ document.addEventListener('DOMContentLoaded', function () {
               clicked.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
               clicked.style.opacity = '0.35';
               clicked.style.transform = 'translateY(-20px) scale(0.9)';
-              updateCounter('#wood-count', payload.payload.wood);
               deleteItem(clicked, { delay: 300 });
-              setTimeout(function () { try { clicked.remove(); } catch (e) {} }, 400);
+              setTimeout(function () { if (clicked.parentNode) { clicked.parentNode.removeChild(clicked); } }, 400);
             }).catch(function () {
               alert('Erro de rede ao cortar a árvore.');
-              clicked.dataset.chopped = '';
+              clicked.setAttribute('data-chopped', '');
               clicked.style.pointerEvents = 'auto';
             });
-        });
+        };
 
         sceneGrid.appendChild(tree);
       } else {
@@ -562,7 +542,7 @@ document.addEventListener('DOMContentLoaded', function () {
         // Toco com contador visual até a árvore voltar.
         var stump = document.createElement('div');
         stump.className = 'scene-tree-stump';
-        stump.dataset.col = String(column);
+        stump.setAttribute('data-col', '' + column);
         stump.style.position = 'absolute';
         stump.style.left = (column * tileSize + (tileSize / 8)) + 'px';
         stump.style.bottom = (row * tileSize + (tileSize * 0.9) + 2) + 'px';
@@ -572,7 +552,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         var badge = document.createElement('div');
         badge.className = 'tree-timer-badge';
-        badge.dataset.col = String(column);
+        badge.setAttribute('data-col', '' + column);
         badge.style.position = 'absolute';
         badge.style.right = '6px';
         badge.style.top = '-20px';
@@ -581,12 +561,12 @@ document.addEventListener('DOMContentLoaded', function () {
         badge.style.padding = '4px 6px';
         badge.style.borderRadius = '6px';
         badge.style.fontSize = '12px';
-        badge.textContent = String(t.seconds_left || 0);
+        badge.textContent = '' + (t.seconds_left || 0);
 
         stump.appendChild(badge);
         sceneGrid.appendChild(stump);
       }
-    });
+    }
   }
 
   // Pedido assíncrono para obter o estado atual.
@@ -651,19 +631,21 @@ document.addEventListener('DOMContentLoaded', function () {
   setSteevePosition();
 
   // Seleção da construção ativa na interface.
-  buildingButtons.forEach(function (button) {
-    button.addEventListener('click', function () {
-      buildingButtons.forEach(function (item) {
-        item.classList.remove('selected');
-      });
+  for (var bi = 0; bi < buildingButtons.length; bi++) {
+    (function (button) {
+      button.onclick = function () {
+        for (var bj = 0; bj < buildingButtons.length; bj++) {
+          buildingButtons[bj].classList.remove('selected');
+        }
 
-      button.classList.add('selected');
-      selectedBuildingKey = button.getAttribute('data-building-key');
-    });
-  });
+        button.classList.add('selected');
+        selectedBuildingKey = button.getAttribute('data-building-key');
+      };
+    })(buildingButtons[bi]);
+  }
 
   // Movimento do personagem pelo teclado.
-  document.addEventListener('keydown', function (event) {
+  document.onkeydown = function (event) {
     if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
       moveSteeve(-1);
     }
@@ -671,7 +653,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D') {
       moveSteeve(1);
     }
-  });
+  };
 
   // Marca a primeira construção como selecionada por defeito.
   if (buildingButtons[0]) {
@@ -679,7 +661,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // Redesenha o cenário quando a janela muda de tamanho.
-  window.addEventListener('resize', function () {
+  window.onresize = function () {
     if (!sceneFrame) {
       return;
     }
@@ -691,16 +673,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     buildScene([]);
     setSteevePosition();
-  });
-
-  // Botões do inventário para gastar recursos rapidamente.
-  inventoryRemoveButtons.forEach(function (button) {
-    button.addEventListener('click', function () {
-      var resource = button.getAttribute('data-resource');
-      var amount = Number(button.getAttribute('data-amount') || '1');
-      removeInventoryResource(resource, amount);
-    });
-  });
+  };
 
   // Carrega o estado inicial do jogo quando a página abre.
   refreshState();
@@ -709,4 +682,6 @@ document.addEventListener('DOMContentLoaded', function () {
   setInterval(function () {
     refreshState();
   }, 1000);
-});
+}
+
+initGame();

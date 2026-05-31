@@ -12,7 +12,6 @@
     </div>
 
     <form method="post" class="auth-form auth-form--minecraft">
-      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <label>
         <span>Username</span>
         <input type="text" name="username" placeholder="O teu nome de jogador" required>
@@ -29,7 +28,7 @@
         <button type="submit" class="mc-button full">
           <span class="title">Registar</span>
         </button>
-        <a class="mc-button full auth-cta-link" href="{{ url_for('auth.login') }}">
+        <a class="mc-button full auth-cta-link" href="{{ url_for('login') }}">
           <span class="title">Login</span>
         </a>
       </div>

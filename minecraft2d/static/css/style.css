@@ -148,7 +148,7 @@ img {
   width: 100%;
   min-height: 100vh;
   padding: 1.5rem 0;
-  background: #8eb0d9 url('/img/backlogin.png') center center/cover no-repeat;
+  background: #8eb0d9 url('/static/img/backlogin.png') center center/cover no-repeat;
 }
 
 .auth-page .topbar {
@@ -329,7 +329,7 @@ img {
   white-space: nowrap;
   user-select: none;
   text-decoration: none;
-  background: #999 url('/img/backnutton.png') center center/100% 100% no-repeat;
+  background: #999 url('/static/img/backnutton.png') center center/100% 100% no-repeat;
   image-rendering: pixelated;
   border: 3px solid rgba(18, 18, 18, 0.95);
   padding: 0;
