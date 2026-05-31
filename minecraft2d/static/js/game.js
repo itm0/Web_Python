@@ -220,6 +220,40 @@ function initGame() {
     steeve.style.width = 'auto';
     steeve.style.height = (tileSize * 1.375) + 'px';
     localStorage.setItem('steeve-tile', '' + steeveTile);
+
+    var axeEl = document.getElementById('steeve-axe');
+    if (axeEl) {
+      axeEl.style.left = (steeveTile * tileSize + Math.round(tileSize * 0.82)) + 'px';
+      axeEl.style.bottom = (tileSize * mapRows - parseInt(tileSize / 12, 10) + Math.round(tileSize * 0.45)) + 'px';
+    }
+  }
+
+  // Mostra ou esconde o machado ao lado do Steve (funcionalidade extra do projeto).
+  // createElement / className / appendChild / style: Lab 05 ✅.
+  function renderAxe(hasAxe, axeLevel) {
+    var axeEl = document.getElementById('steeve-axe');
+    if (!hasAxe) {
+      if (axeEl) { axeEl.style.display = 'none'; }
+      return;
+    }
+    if (!axeEl) {
+      axeEl = document.createElement('div');
+      axeEl.id = 'steeve-axe';
+      axeEl.className = 'steeve-axe-badge';
+      if (sceneFrame) { sceneFrame.appendChild(axeEl); }
+    }
+    var axeImg = '/static/img/machado.png';
+    if (axeLevel >= 4) {
+      axeImg = '/static/img/machado_diamante.png';
+    } else if (axeLevel >= 3) {
+      axeImg = '/static/img/machado_ferro.png';
+    } else if (axeLevel >= 2) {
+      axeImg = '/static/img/machado_pedra.png';
+    }
+    axeEl.style.display = 'flex';
+    axeEl.innerHTML = '<img src=\"' + axeImg + '\" alt=\"Machado\" class=\"axe-icon\"><span class=\"axe-level\">Nv.' + axeLevel + '</span>';
+    axeEl.style.left = (steeveTile * tileSize + Math.round(tileSize * 0.82)) + 'px';
+    axeEl.style.bottom = (tileSize * mapRows - parseInt(tileSize / 12, 10) + Math.round(tileSize * 0.45)) + 'px';
   }
 
   // Move o Steve para a esquerda ou direita.
@@ -317,7 +351,8 @@ function initGame() {
   // Cria os cartões de slot de construção dinamicamente.
   // createElement / className / textContent / appendChild / onclick: Lab 05 ✅.
   // for loop: Lab 04 ✅.
-  function renderSlots(slots, buildings) {
+  // hasAxe / axeLevel: ✅ (parametros de funcao). Funcionalidade extra do projeto (machado).
+  function renderSlots(slots, buildings, hasAxe, axeLevel) {
     if (!slotsGrid) {
       return;
     }
@@ -350,9 +385,26 @@ function initGame() {
       meta.textContent = building ? building.name + ' · ' + building.description : 'Sem construção';
       card.appendChild(meta);
 
+      if (slot.state === 'ready' && slot.building_type === 'cabana') {
+        var costWood = 15 + (axeLevel * 8);
+        var costStone = axeLevel === 0 ? 0 : 8 + (axeLevel * 5);
+        var costEl = document.createElement('div');
+        costEl.className = 'slot-cost';
+        costEl.textContent = 'Custo: ' + costWood + ' madeira' + (costStone > 0 ? ' · ' + costStone + ' pedra' : '');
+        card.appendChild(costEl);
+      }
+
+      if (slot.state === 'busy' && slot.ready_at) {
+        var timerEl = document.createElement('div');
+        timerEl.className = 'slot-timer';
+        timerEl.setAttribute('data-ready-at', slot.ready_at);
+        timerEl.textContent = 'A decorrer...';
+        card.appendChild(timerEl);
+      }
+
       actionBox.className = 'slot-actions';
 
-      (function (slotId) {
+      (function (slotId, slotBuildingType) {
         if (slot.state === 'empty') {
           var buildButton = document.createElement('button');
           buildButton.className = 'slot-action build';
@@ -364,9 +416,13 @@ function initGame() {
         }
 
         if (slot.state === 'ready') {
+          var taskText = 'Iniciar tarefa';
+          if (slotBuildingType === 'cabana') {
+            taskText = hasAxe ? 'Upgrade Machado Nivel ' + (axeLevel + 1) : 'Fabricar Machado';
+          }
           var taskButton = document.createElement('button');
           taskButton.className = 'slot-action task';
-          taskButton.textContent = 'Iniciar tarefa';
+          taskButton.textContent = taskText;
           taskButton.onclick = function () {
             startTask(slotId);
           };
@@ -374,15 +430,19 @@ function initGame() {
         }
 
         if (slot.state === 'collectable') {
+          var collectText = 'Recolher recompensa';
+          if (slotBuildingType === 'cabana') {
+            collectText = hasAxe ? 'Recolher Upgrade' : 'Recolher Machado';
+          }
           var collectButton = document.createElement('button');
           collectButton.className = 'slot-action collect';
-          collectButton.textContent = 'Recolher recompensa';
+          collectButton.textContent = collectText;
           collectButton.onclick = function () {
             collectTask(slotId);
           };
           actionBox.appendChild(collectButton);
         }
-      })(slot.id);
+      })(slot.id, slot.building_type);
 
       card.appendChild(actionBox);
       slotsGrid.appendChild(card);
@@ -469,7 +529,9 @@ function initGame() {
     latestStatePayload = payload;
     renderInventory(payload.user);
 
-    renderSlots(payload.slots, payload.buildings);
+    renderSlots(payload.slots, payload.buildings, payload.user.has_axe, payload.user.axe_level);
+    renderAxe(payload.user.has_axe, payload.user.axe_level);
+    setSteevePosition();
     renderLogs(payload.logs);
     buildScene(payload.stones || []);
     if (payload.trees) {
@@ -649,21 +711,30 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
     })(buildingButtons[bi]);
   }
 
-  // Teclado: setas e A/D para andar. document.onkeydown (vs addEventListener).
-  // addEventListener com 'keydown': Lab 04 ✅. document.onkeydown: fora (usam addEventListener nos labs).
-  document.onkeydown = function (event) {
-    if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
-      moveSteeve(-1);
-    }
-
-    if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D') {
-      moveSteeve(1);
-    }
-  };
-
   if (buildingButtons[0]) {
     buildingButtons[0].classList.add('selected');
   }
+
+  // Botões de movimento (esquerda/direita). addEventListener: Lab 04 ✅.
+  var moveLeftBtn = document.getElementById('btn-move-left');
+  var moveRightBtn = document.getElementById('btn-move-right');
+
+  if (moveLeftBtn) {
+    moveLeftBtn.addEventListener('click', function () { moveSteeve(-1); });
+  }
+  if (moveRightBtn) {
+    moveRightBtn.addEventListener('click', function () { moveSteeve(1); });
+  }
+
+  // Teclado: setas e A/D para andar. addEventListener: Lab 04 ✅.
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
+      moveSteeve(-1);
+    }
+    if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D') {
+      moveSteeve(1);
+    }
+  });
 
   // Redesenha o cenário quando a janela muda (window.onresize: fora da matéria dos labs).
   window.onresize = function () {

@@ -97,6 +97,7 @@ def api_state():
     # Endpoint JSON que envia ao frontend o estado completo do jogo (user, slots, logs, recursos do mapa).
     # ❌ fora (labs só usam render_template, nunca jsonify). Necessário porque o frontend em JS busca dados assíncronos com fetch().
     # .isoformat() e .total_seconds() também não foram dados — usados para serializar timestamps e calcular cooldowns.
+    # has_axe: ✅ (atributo do user, igual a wood/stone). Funcionalidade extra do projeto (machado da Mesa de Trabalho).
     database = get_db()
     ensure_state(current_user)
     logs = database.list_action_logs(current_user.id, limit=8)
@@ -158,6 +159,8 @@ def api_state():
                 "username": current_user.username,
                 "wood": current_user.wood,
                 "stone": current_user.stone,
+                "has_axe": current_user.has_axe,
+                "axe_level": current_user.axe_level,
             },
             "slots": slots,
             "logs": logs_list,
@@ -224,11 +227,32 @@ def api_task_start(slot_id):
 
     building = get_db().get_building(slot.building_type)
     slot.state = "working"
-    slot.action_type = building["task_name"]
     slot.started_at = datetime.utcnow()
-    slot.ready_at = slot.started_at + timedelta(seconds=building["task_seconds"])
+
+    # Mesa de Trabalho: task dinamica conforme nivel do machado (funcionalidade extra do projeto).
+    if slot.building_type == "cabana":
+        if current_user.has_axe:
+            slot.action_type = f"Upgrade Machado Nivel {current_user.axe_level + 1}"
+        else:
+            slot.action_type = "Fabricar Machado"
+        task_seconds = building["task_seconds"] + (current_user.axe_level * 8)
+        cost_wood = 15 + (current_user.axe_level * 8)
+        cost_stone = 0 if current_user.axe_level == 0 else 8 + (current_user.axe_level * 5)
+        if current_user.wood < cost_wood or current_user.stone < cost_stone:
+            msg = f"Precisas de {cost_wood} madeira."
+            if cost_stone > 0:
+                msg += f" e {cost_stone} pedra."
+            return jsonify({"ok": False, "message": msg}), 400
+        current_user.wood -= cost_wood
+        current_user.stone -= cost_stone
+        database.update_user_resources(current_user)
+    else:
+        slot.action_type = building["task_name"]
+        task_seconds = building["task_seconds"]
+
+    slot.ready_at = slot.started_at + timedelta(seconds=task_seconds)
     database.update_slot(slot)
-    database.add_action_log(current_user.id, f"Tarefa '{building['task_name']}' iniciada no slot {slot.slot_number}.")
+    database.add_action_log(current_user.id, f"Tarefa '{slot.action_type}' iniciada no slot {slot.slot_number}.")
     return jsonify({"ok": True})
 
 
@@ -249,11 +273,25 @@ def api_task_collect(slot_id):
         return jsonify({"ok": False, "message": "Não há recompensa para recolher."}), 400
 
     building = get_db().get_building(slot.building_type)
-    current_user.wood += building["reward_wood"]
-    current_user.stone += building["reward_stone"]
+
+    # Mesa de Trabalho: em vez de recursos, da o machado ou upgrade (funcionalidade extra do projeto).
+    if slot.building_type == "cabana":
+        if "Fabricar" in slot.action_type:
+            current_user.has_axe = 1
+            current_user.axe_level = 1
+            database.update_user_axe(current_user.id, 1, 1)
+            database.add_action_log(current_user.id, "Machado fabricado! A madeira rende o dobro.")
+        elif "Upgrade" in slot.action_type:
+            current_user.axe_level += 1
+            database.update_user_axe(current_user.id, 1, current_user.axe_level)
+            database.add_action_log(current_user.id, f"Machado upgraded para Nivel {current_user.axe_level}!")
+    else:
+        current_user.wood += building["reward_wood"]
+        current_user.stone += building["reward_stone"]
+        database.update_user_resources(current_user)
+
     slot.state = "ready"
     slot.action_type = None
-    database.update_user_resources(current_user)
     database.update_slot(slot)
     database.add_action_log(current_user.id, f"Recompensa recolhida do slot {slot.slot_number}.")
     return jsonify({"ok": True})
@@ -283,6 +321,8 @@ def api_chop():
         tree.chopped_at = None
 
     tree.chopped_at = now
+    # axe_level: multiplicador de madeira (nivel 1=x2, nivel 2=x3, ...). Funcionalidade extra do projeto.
+    wood_amount = wood_amount * (current_user.axe_level + 1) if current_user.has_axe else wood_amount
     current_user.wood += wood_amount
     if current_user.wood > RESOURCE_MAX_AMOUNT:
         current_user.wood = RESOURCE_MAX_AMOUNT
@@ -364,6 +404,3 @@ def api_inventory_remove():
     database.add_action_log(current_user.id, f"{amount} {label} removida do inventário.")
 
     return jsonify({"ok": True, "wood": current_user.wood, "stone": current_user.stone})
-
-
-

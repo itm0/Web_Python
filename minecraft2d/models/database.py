@@ -42,7 +42,7 @@ def _format_datetime(value):
 class User(UserMixin):
     # Construtor: guarda os dados do user vindos da BD ou do registo.
     # wood/stone começam a 26 (recursos iniciais do jogo).
-    def __init__(self, id, username, email, password_hash, wood=26, stone=26, created_at=None):
+    def __init__(self, id, username, email, password_hash, wood=26, stone=26, created_at=None, has_axe=0, axe_level=0):
         self.id = id
         self.username = username
         self.email = email
@@ -51,6 +51,9 @@ class User(UserMixin):
         self.wood = wood
         self.stone = stone
         self.created_at = created_at
+        # has_axe / axe_level: ✅ (INTEGER DEFAULT, igual a wood/stone). Funcionalidade extra do projeto (machado da Mesa de Trabalho).
+        self.has_axe = has_axe
+        self.axe_level = axe_level
 
     # Recebe uma password em texto limpo e guarda o seu hash. ✅ (Lab 08).
     def set_password(self, password):
@@ -73,6 +76,8 @@ class User(UserMixin):
             wood=row["wood"],
             stone=row["stone"],
             created_at=_parse_datetime(row["created_at"]),
+            has_axe=row["has_axe"] if "has_axe" in row.keys() else 0,
+            axe_level=row["axe_level"] if "axe_level" in row.keys() else 0,
         )
 
 
@@ -204,6 +209,7 @@ class Database:
     # FOREIGN KEY, UNIQUE composto: ❌ fora (lab só tem tabelas simples sem FK). Usado para garantir integridade referencial (ex: apagar slots se o user for removido) e evitar slots duplicados por utilizador.
     # buildings + seed data: específico do projeto, não existe no lab.
     # trees + stones com INSERT OR IGNORE por coluna: específico do jogo.
+    # has_axe / axe_level: ✅ (INTEGER DEFAULT 0, igual a wood/stone em Lab 07). Colunas para o machado da Mesa de Trabalho (funcionalidade extra do projeto).
     def create_table(self):
         with self._connect() as connection:
             cursor = connection.cursor()
@@ -216,6 +222,8 @@ class Database:
                     password_hash VARCHAR(255) NOT NULL,
                     wood INTEGER NOT NULL DEFAULT 26,
                     stone INTEGER NOT NULL DEFAULT 26,
+                    has_axe INTEGER NOT NULL DEFAULT 0,
+                    axe_level INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 )
                 """
@@ -303,13 +311,13 @@ class Database:
                 """
             )
             cursor.execute(
-                "INSERT OR IGNORE INTO buildings VALUES ('cabana','Cabana',15,5,20,'Recolher madeira',20,8,0,'Produz madeira e mantém a aldeia viva.')"
+                "INSERT OR IGNORE INTO buildings VALUES ('cabana','Mesa de Trabalho',15,5,20,'Fabricar Machado',20,0,0,'Produz ferramentas de madeira para construir.')"
             )
             cursor.execute(
-                "INSERT OR IGNORE INTO buildings VALUES ('mina','Mina',10,15,25,'Minerar pedra',25,0,10,'Gera pedra para novas construções.')"
+                "INSERT OR IGNORE INTO buildings VALUES ('mina','Fornalha',10,15,25,'Fundir minerio',25,0,10,'Funde minerio em lingotes de pedra.')"
             )
             cursor.execute(
-                "INSERT OR IGNORE INTO buildings VALUES ('forja','Forja',20,10,30,'Reforjar ferramentas',30,4,4,'Equilibra madeira e pedra em progresso.')"
+                "INSERT OR IGNORE INTO buildings VALUES ('forja','Quinta',20,10,30,'Colher colheitas',30,4,4,'Cultiva alimentos e gera madeira.')"
             )
             self.drop_legacy_tables(cursor)
             connection.commit()
@@ -390,6 +398,16 @@ class Database:
                 WHERE id = ?
                 """,
                 (user.wood, user.stone, user.id),
+            )
+            connection.commit()
+
+    # Atualiza has_axe e axe_level do user (machado da Mesa de Trabalho).
+    # UPDATE com parametros ?: ✅ (Lab 07). Funcionalidade extra do projeto.
+    def update_user_axe(self, user_id, has_axe, axe_level):
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE users SET has_axe = ?, axe_level = ? WHERE id = ?",
+                (has_axe, axe_level, user_id),
             )
             connection.commit()
 

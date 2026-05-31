@@ -13,7 +13,7 @@
         <h1>Minecraft 2D</h1>
       </div>
       <nav class="nav-links">
-        {% if is_logged_in %}
+        {% if current_user.is_authenticated %}
         <a href="{{ url_for('game.dashboard') }}">Dashboard</a>
         <form action="{{ url_for('auth.logout') }}" method="post" class="logout-form">
           <button type="submit" class="nav-link-button">Logout</button>

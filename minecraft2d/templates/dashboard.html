@@ -5,11 +5,15 @@
   <article class="scene-panel">
     <div class="panel-header">
       <h2>Minecraft 2D</h2>
-      <p>Move o Steve por tiles com as setas ou A / D.</p>
+      <p>Move o Steve com os botões, setas ou A / D.</p>
     </div>
     <div id="scene-frame" class="scene-frame">
       <div id="scene-grid" class="scene-grid"></div>
       <img src="{{ url_for('static', filename='img/steeve.png') }}" alt="Steve" id="steeve" class="steeve-sprite">
+    </div>
+    <div class="move-controls">
+      <button id="btn-move-left" class="move-btn" type="button">&larr;</button>
+      <button id="btn-move-right" class="move-btn" type="button">&rarr;</button>
     </div>
   </article>
 
