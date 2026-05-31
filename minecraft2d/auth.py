@@ -1,7 +1,11 @@
-from flask import current_app, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required, login_user, logout_user
 
 from models import Database, User
+
+
+# Blueprint agrupa rotas com prefixo comum (aqui sem prefixo).
+auth_bp = Blueprint("auth", __name__)
 
 
 def get_db():
@@ -14,11 +18,10 @@ def create_default_slots(user):
     database.add_action_log(user.id, "Conta criada com recursos iniciais.")
 
 
+@auth_bp.route("/register", methods=["GET", "POST"])
 def register():
-    messages = []
-
     if current_user.is_authenticated:
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("game.dashboard"))
 
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -27,34 +30,33 @@ def register():
         database = get_db()
 
         if not username or not email or not password:
-            messages.append(("error", "Preenche username, email e password."))
-            return render_template("register.html", messages=messages, is_logged_in=False)
+            flash("Preenche username, email e password.", "error")
+            return render_template("register.html")
 
         if len(password) < 4:
-            messages.append(("error", "A password tem de ter pelo menos 4 caracteres."))
-            return render_template("register.html", messages=messages, is_logged_in=False)
+            flash("A password tem de ter pelo menos 4 caracteres.", "error")
+            return render_template("register.html")
 
         if database.get_user_by_username(username):
-            messages.append(("error", "Esse username já existe."))
-            return render_template("register.html", messages=messages, is_logged_in=False)
+            flash("Esse username já existe.", "error")
+            return render_template("register.html")
 
         if database.get_user_by_email(email):
-            messages.append(("error", "Esse email já existe."))
-            return render_template("register.html", messages=messages, is_logged_in=False)
+            flash("Esse email já existe.", "error")
+            return render_template("register.html")
 
         user = database.create_user(username, email, password)
         create_default_slots(user)
         login_user(user)
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("game.dashboard"))
 
-    return render_template("register.html", messages=messages, is_logged_in=False)
+    return render_template("register.html")
 
 
+@auth_bp.route("/login", methods=["GET", "POST"])
 def login():
-    messages = []
-
     if current_user.is_authenticated:
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("game.dashboard"))
 
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -63,16 +65,17 @@ def login():
         user = get_db().get_user_by_username(username)
 
         if user is None or not user.check_password(password):
-            messages.append(("error", "Credenciais inválidas."))
-            return render_template("login.html", messages=messages, is_logged_in=False)
+            flash("Credenciais inválidas.", "error")
+            return render_template("login.html")
 
         login_user(user)
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("game.dashboard"))
 
-    return render_template("login.html", messages=messages, is_logged_in=False)
+    return render_template("login.html")
 
 
+@auth_bp.route("/logout", methods=["GET", "POST"])
 @login_required
 def logout():
     logout_user()
-    return redirect(url_for("login"))
+    return redirect(url_for("auth.login"))
