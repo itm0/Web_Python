@@ -1,27 +1,32 @@
+# views.py
+
+
+
 from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 from flask_login import current_user, login_required
 
 
-# Blueprint agrupa rotas com prefixo comum (aqui sem prefixo).
+# Blueprint: ❌ fora (labs 07-08 organizam rotas no mesmo ficheiro). Usado para separar rotas de auth e de jogo em ficheiros diferentes.
 game_bp = Blueprint("game", __name__)
-# Estes valores controlam a jogabilidade no browser.
-# Alguns deles são extensão do que foi visto na matéria, porque adicionam ciclos de recursos e ações assíncronas.
-RESOURCE_RESPAWN_SECONDS = 10
-RESOURCE_MAX_AMOUNT = 64
-TREE_WOOD_YIELD = 4
-STONE_STONE_YIELD = 2
+
+# Constantes de jogabilidade: ❌ fora (não existem nos labs). Controlam o equilíbrio do jogo no browser.
+RESOURCE_RESPAWN_SECONDS = 10   # Segundos até árvore/pedra poder ser extraída outra vez
+RESOURCE_MAX_AMOUNT = 64        # Máximo de recursos que o jogador pode ter
+TREE_WOOD_YIELD = 4             # Madeira obtida por árvore cortada
+STONE_STONE_YIELD = 2           # Pedra obtida por pedra minerada
 
 
+# Devolve o objeto Database guardado na app. ❌ fora (labs usam uma variável global ou passam a BD diretamente).
 def get_db():
-    # A app guarda a base de dados em app.config["db"], seguindo a organização que já foi ajustada.
     return current_app.config["db"]
 
 
+# Verifica se uma construção/tarefa já terminou comparando o tempo atual com ready_at.
+# ❌ fora (labs não usam timestamps). Necessário porque o jogo tem ações temporizadas sem usar um cron job.
+# Se o tempo já passou, muda o estado do slot e regista no histórico.
 def sync_slot(slot):
-    # Função de sincronização "on demand": o servidor verifica o tempo quando a página é aberta.
-    # Isto é um pouco fora da matéria porque usa timestamps para completar tarefas sem worker/cron.
     database = get_db()
     now = datetime.utcnow()
     if slot.ready_at is None:
@@ -41,19 +46,24 @@ def sync_slot(slot):
         database.add_action_log(slot.user_id, f"A tarefa no slot {slot.slot_number} terminou. Podes recolher a recompensa.")
 
 
+# Sincroniza todos os slots do user e limita os recursos ao máximo (cap).
+# ❌ fora (labs não têm lógica de sincronização nem capping de recursos). Necessário para garantir que o estado está atualizado antes de cada ação ou refresh.
 def ensure_state(user):
-    # Atualiza todos os slots do utilizador e normaliza recursos antes de renderizar a vista.
     database = get_db()
     for slot in database.list_user_slots(user.id):
         sync_slot(slot)
 
-    user.wood = min(user.wood, RESOURCE_MAX_AMOUNT)
-    user.stone = min(user.stone, RESOURCE_MAX_AMOUNT)
+    if user.wood > RESOURCE_MAX_AMOUNT:
+        user.wood = RESOURCE_MAX_AMOUNT
+    if user.stone > RESOURCE_MAX_AMOUNT:
+        user.stone = RESOURCE_MAX_AMOUNT
     database.update_user_resources(user)
 
 
+# Converte um objeto BuildingSlot num dicionário para enviar como JSON ao frontend.
+# ❌ fora (labs não usam JSON APIs). Necessário porque o frontend em JavaScript precisa dos dados do slot em formato JSON.
+# .isoformat() também não foi dado nos labs — usado para serializar datetime numa string legível.
 def slot_payload(slot):
-    # Converte um slot para JSON para o frontend saber como o mostrar.
     building = get_db().get_building(slot.building_type) if slot.building_type else None
     return {
         "id": slot.id,
@@ -74,7 +84,8 @@ def slot_payload(slot):
 @game_bp.route("/dashboard")
 @login_required
 def dashboard():
-    # Página principal do jogo, equivalente à view do exemplo da matéria.
+    # Rota que renderiza a página principal do jogo. ✅ (Lab 07 - render_template).
+    # @login_required ✅ (Lab 08).
     ensure_state(current_user)
     buildings = get_db().get_buildings()
     return render_template("dashboard.html", buildings=buildings)
@@ -83,8 +94,9 @@ def dashboard():
 @game_bp.route("/api/state")
 @login_required
 def api_state():
-    # Endpoint JSON que alimenta o frontend com o estado completo do jogo.
-    # Isto vai além do básico da matéria porque junta vários conjuntos de dados numa resposta.
+    # Endpoint JSON que envia ao frontend o estado completo do jogo (user, slots, logs, recursos do mapa).
+    # ❌ fora (labs só usam render_template, nunca jsonify). Necessário porque o frontend em JS busca dados assíncronos com fetch().
+    # .isoformat() e .total_seconds() também não foram dados — usados para serializar timestamps e calcular cooldowns.
     database = get_db()
     ensure_state(current_user)
     logs = database.list_action_logs(current_user.id, limit=8)
@@ -94,7 +106,6 @@ def api_state():
     now = datetime.utcnow()
     trees = []
     for tree in database.list_trees():
-        # Árvores com cooldown: se foram cortadas recentemente, ainda não podem ser usadas.
         available = True
         seconds_left = 0
         if tree.chopped_at:
@@ -115,7 +126,6 @@ def api_state():
 
     stones = []
     for stone in database.list_stones():
-        # O mesmo padrão é usado para as pedras.
         available = True
         seconds_left = 0
         if stone.mined_at:
@@ -134,6 +144,14 @@ def api_state():
             }
         )
 
+    slots = []
+    for slot in database.list_user_slots(current_user.id):
+        slots.append(slot_payload(slot))
+
+    logs_list = []
+    for log in logs:
+        logs_list.append({"message": log.message, "created_at": log.created_at.isoformat()})
+
     return jsonify(
         {
             "user": {
@@ -141,8 +159,8 @@ def api_state():
                 "wood": current_user.wood,
                 "stone": current_user.stone,
             },
-            "slots": [slot_payload(slot) for slot in database.list_user_slots(current_user.id)],
-            "logs": [{"message": log.message, "created_at": log.created_at.isoformat()} for log in logs],
+            "slots": slots,
+            "logs": logs_list,
             "buildings": get_db().get_buildings(),
             "trees": trees,
             "stones": stones,
@@ -153,7 +171,9 @@ def api_state():
 @game_bp.route("/api/build/<int:slot_id>", methods=["POST"])
 @login_required
 def api_build(slot_id):
-    # Inicia uma construção num slot vazio, consumindo recursos do jogador.
+    # Inicia uma construção num slot vazio: valida slot, verifica recursos, deduz custo e marca início.
+    # ❌ fora (labs usam formulários HTML, não JSON API). Usa request.get_json para receber dados do fetch() do frontend.
+    # datetime + timedelta ❌ fora — usado para calcular quando a construção termina.
     database = get_db()
     slot = database.get_slot(slot_id, current_user.id)
     if slot is None:
@@ -190,7 +210,8 @@ def api_build(slot_id):
 @game_bp.route("/api/task/<int:slot_id>/start", methods=["POST"])
 @login_required
 def api_task_start(slot_id):
-    # Depois da construção estar pronta, esta rota inicia a tarefa do edifício.
+    # Inicia a tarefa de um edifício já construído (slot em estado "ready").
+    # ❌ fora (labs não têm lógica de tarefas temporizadas). Usa timedelta para calcular o fim da tarefa.
     database = get_db()
     slot = database.get_slot(slot_id, current_user.id)
     if slot is None:
@@ -214,7 +235,9 @@ def api_task_start(slot_id):
 @game_bp.route("/api/task/<int:slot_id>/collect", methods=["POST"])
 @login_required
 def api_task_collect(slot_id):
-    # Recolhe a recompensa quando a tarefa já terminou.
+    # Recolhe a recompensa de uma tarefa concluída (slot em estado "collectable").
+    # Adiciona os recursos ao inventário e volta o slot a "ready" para nova tarefa.
+    # ❌ fora (labs não têm sistema de recompensas nem máquina de estados).
     database = get_db()
     slot = database.get_slot(slot_id, current_user.id)
     if slot is None:
@@ -239,7 +262,8 @@ def api_task_collect(slot_id):
 @game_bp.route("/api/chop", methods=["POST"])
 @login_required
 def api_chop():
-    # Minerar árvores/pedra por AJAX é uma funcionalidade um pouco além da matéria, mas segue a mesma ideia de rota Flask + resposta JSON.
+    # Corta uma árvore: verifica cooldown, adiciona madeira ao inventário e regista o momento do corte.
+    # ❌ fora (labs não usam JSON API nem lógica de cooldown com timestamps). request.get_json para receber a coluna vinda do fetch().
     database = get_db()
     data = request.get_json(silent=True) or {}
     column = data.get("column")
@@ -259,17 +283,20 @@ def api_chop():
         tree.chopped_at = None
 
     tree.chopped_at = now
-    current_user.wood = min(current_user.wood + wood_amount, RESOURCE_MAX_AMOUNT)
+    current_user.wood += wood_amount
+    if current_user.wood > RESOURCE_MAX_AMOUNT:
+        current_user.wood = RESOURCE_MAX_AMOUNT
     database.update_tree(tree)
     database.update_user_resources(current_user)
-    database.add_action_log(current_user.id, f"Árvore cortada: +{min(wood_amount, RESOURCE_MAX_AMOUNT)} madeira.")
+    database.add_action_log(current_user.id, f"Árvore cortada: +{wood_amount} madeira.")
     return jsonify({"ok": True, "wood": current_user.wood, "respawn_seconds": RESOURCE_RESPAWN_SECONDS})
 
 
 @game_bp.route("/api/mine-stone", methods=["POST"])
 @login_required
 def api_mine_stone():
-    # Rota equivalente à de cortar árvores, mas para pedra.
+    # Mina uma pedra: equivalente a api_chop mas para o recurso pedra.
+    # ❌ fora (mesma lógica de JSON API, cooldown e capping).
     database = get_db()
     data = request.get_json(silent=True) or {}
     column = data.get("column")
@@ -289,17 +316,20 @@ def api_mine_stone():
         stone.mined_at = None
 
     stone.mined_at = now
-    current_user.stone = min(current_user.stone + stone_amount, RESOURCE_MAX_AMOUNT)
+    current_user.stone += stone_amount
+    if current_user.stone > RESOURCE_MAX_AMOUNT:
+        current_user.stone = RESOURCE_MAX_AMOUNT
     database.update_stone(stone)
     database.update_user_resources(current_user)
-    database.add_action_log(current_user.id, f"Pedra minerada: +{min(stone_amount, RESOURCE_MAX_AMOUNT)} pedra.")
+    database.add_action_log(current_user.id, f"Pedra minerada: +{stone_amount} pedra.")
     return jsonify({"ok": True, "stone": current_user.stone, "respawn_seconds": RESOURCE_RESPAWN_SECONDS})
 
 
 @game_bp.route("/api/inventory/remove", methods=["POST"])
 @login_required
 def api_inventory_remove():
-    # Remove itens do inventário do utilizador.
+    # Remove uma quantidade de um recurso do inventário do jogador.
+    # ❌ fora (labs não têm gestão de inventário). Usa if/else ✅ para selecionar o recurso certo.
     database = get_db()
     data = request.get_json(silent=True) or {}
     resource = data.get("resource")
@@ -316,11 +346,19 @@ def api_inventory_remove():
     if amount <= 0:
         return jsonify({"ok": False, "message": "A quantidade tem de ser maior que zero."}), 400
 
-    current_value = getattr(current_user, resource)
+    if resource == "wood":
+        current_value = current_user.wood
+    else:
+        current_value = current_user.stone
+
     if current_value < amount:
         return jsonify({"ok": False, "message": "Inventário insuficiente."}), 400
 
-    setattr(current_user, resource, current_value - amount)
+    if resource == "wood":
+        current_user.wood = current_value - amount
+    else:
+        current_user.stone = current_value - amount
+
     label = "madeira" if resource == "wood" else "pedra"
     database.update_user_resources(current_user)
     database.add_action_log(current_user.id, f"{amount} {label} removida do inventário.")

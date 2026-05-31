@@ -7,11 +7,14 @@ from flask_login import UserMixin
 from passlib.hash import pbkdf2_sha256 as hasher
 
 
+# Converte uma string "AAAA-MM-DDTHH:MM:SS" guardada na BD para um objeto datetime do Python.
+# _parse_datetime / _format_datetime: ❌ fora (labs não usam timestamps). Necessário para calcular tempos de construção, tarefas e cooldown de recursos.
 def _parse_datetime(value):
     if value is None or value == "":
         return None
     if type(value) == datetime:
         return value
+    # Parte a string pelo "T" para separar data de hora
     parts = value.split("T")
     date_parts = parts[0].split("-")
     time_parts = parts[1].split(":") if len(parts) > 1 else ["0", "0", "0"]
@@ -25,6 +28,7 @@ def _parse_datetime(value):
     )
 
 
+# Converte um objeto datetime do Python para string "AAAA-MM-DDTHH:MM:SS" para guardar na BD.
 def _format_datetime(value):
     if value is None:
         return None
@@ -33,22 +37,30 @@ def _format_datetime(value):
     return "%04d-%02d-%02dT%02d:%02d:%02d" % (value.year, value.month, value.day, value.hour, value.minute, value.second)
 
 
+# Modelo User com UserMixin para integração com Flask-Login ✅ (Lab 08).
+# set_password / check_password com passlib: ✅ (Lab 08).
 class User(UserMixin):
+    # Construtor: guarda os dados do user vindos da BD ou do registo.
+    # wood/stone começam a 26 (recursos iniciais do jogo).
     def __init__(self, id, username, email, password_hash, wood=26, stone=26, created_at=None):
         self.id = id
         self.username = username
         self.email = email
         self.password_hash = password_hash
+        # wood e stone são específicos do jogo (não existem no modelo User do Lab 08).
         self.wood = wood
         self.stone = stone
         self.created_at = created_at
 
+    # Recebe uma password em texto limpo e guarda o seu hash. ✅ (Lab 08).
     def set_password(self, password):
         self.password_hash = hasher.hash(password)
 
+    # Verifica se a password em texto limpo corresponde ao hash guardado. ✅ (Lab 08).
     def check_password(self, password):
         return hasher.verify(password, self.password_hash)
 
+    # from_row com sqlite3.Row: ❌ fora da matéria (lab usa tuple unpacking, não Row factory). Usado para mapear colunas da BD para atributos do modelo de forma legível e evitar erros de índice.
     @classmethod
     def from_row(cls, row):
         if row is None:
@@ -64,7 +76,11 @@ class User(UserMixin):
         )
 
 
+# BuildingSlot: modelo para slots de construção (inexistente nos labs). ❌ fora.
+# Faz parte das mecânicas do projeto (3+ construções, estados, temporizadores). Necessário para gerir os 4 slots de construção por jogador.
 class BuildingSlot:
+    # Cada slot tem um número (1-4), um tipo de construção opcional, um estado (empty/building/ready/working/collectable),
+    # e timestamps para controlar quando a construção/tarefa termina.
     def __init__(self, id, user_id, slot_number, building_type=None, state="empty", action_type=None, started_at=None, ready_at=None, created_at=None):
         self.id = id
         self.user_id = user_id
@@ -76,6 +92,7 @@ class BuildingSlot:
         self.ready_at = ready_at
         self.created_at = created_at
 
+    # Converte uma linha da BD (sqlite3.Row) num objeto BuildingSlot. ❌ fora (lab usa tuple unpacking).
     @classmethod
     def from_row(cls, row):
         if row is None:
@@ -93,13 +110,16 @@ class BuildingSlot:
         )
 
 
+# ActionLog: histórico de ações do jogador (inexistente nos labs). ❌ fora. Necessário para registar e mostrar o histórico de ações na dashboard.
 class ActionLog:
+    # Armazena uma mensagem de texto (ex: "Árvore cortada: +4 madeira") com a data em que ocorreu.
     def __init__(self, id, user_id, message, created_at=None):
         self.id = id
         self.user_id = user_id
         self.message = message
         self.created_at = created_at
 
+    # Converte uma linha da BD num objeto ActionLog.
     @classmethod
     def from_row(cls, row):
         if row is None:
@@ -112,7 +132,9 @@ class ActionLog:
         )
 
 
+# Tree: modelo para árvores no mapa (inexistente nos labs). ❌ fora. Necessário para gerir recursos naturais no mapa com sistema de cooldown.
 class Tree:
+    # Cada árvore está numa coluna do mapa (column). chopped_at regista quando foi cortada (para cooldown).
     def __init__(self, id, column, chopped_at=None, removed_at=None, created_at=None):
         self.id = id
         self.column = column
@@ -120,6 +142,7 @@ class Tree:
         self.removed_at = removed_at
         self.created_at = created_at
 
+    # Converte uma linha da BD num objeto Tree.
     @classmethod
     def from_row(cls, row):
         if row is None:
@@ -133,7 +156,9 @@ class Tree:
         )
 
 
+# Stone: modelo para pedras no mapa (inexistente nos labs). ❌ fora. Necessário para o segundo recurso do jogo, com a mesma lógica de cooldown das árvores.
 class Stone:
+    # Cada pedra está numa coluna do mapa. mined_at regista quando foi minerada (para cooldown).
     def __init__(self, id, column, mined_at=None, removed_at=None, created_at=None):
         self.id = id
         self.column = column
@@ -141,6 +166,7 @@ class Stone:
         self.removed_at = removed_at
         self.created_at = created_at
 
+    # Converte uma linha da BD num objeto Stone.
     @classmethod
     def from_row(cls, row):
         if row is None:
@@ -154,20 +180,30 @@ class Stone:
         )
 
 
+# Classe principal que gere toda a interação com a base de dados SQLite.
 class Database:
+    # Construtor: recebe o caminho do ficheiro .sqlite, cria o diretório se necessário e cria as tabelas.
     def __init__(self, dbfile):
         self.dbfile = dbfile
         directory = os.path.dirname(dbfile)
+        # Criar diretório se não existir: ❌ fora da matéria (lab assume que a pasta já existe). Usado para garantir que a BD é criada na primeira execução sem erro de diretório inexistente.
         if directory:
             os.makedirs(directory, exist_ok=True)
         self.create_table()
 
+    # Abre uma ligação à BD com row_factory configurado para devolver dicionários.
+    # _connect com row_factory = sqlite3.Row: ❌ fora (lab não usa Row factory). Usado para aceder a colunas por nome (ex: row["username"]) em vez de índice numérico, mais legível e menos sujeito a erros.
     def _connect(self):
         connection = sqlite3.connect(self.dbfile)
         connection.row_factory = sqlite3.Row
 
         return connection
 
+    # Criação de tabelas: CREATE TABLE IF NOT EXISTS ✅ (Lab 07).
+    # Parâmetros com ?, INSERT OR IGNORE ✅ (Lab 07).
+    # FOREIGN KEY, UNIQUE composto: ❌ fora (lab só tem tabelas simples sem FK). Usado para garantir integridade referencial (ex: apagar slots se o user for removido) e evitar slots duplicados por utilizador.
+    # buildings + seed data: específico do projeto, não existe no lab.
+    # trees + stones com INSERT OR IGNORE por coluna: específico do jogo.
     def create_table(self):
         with self._connect() as connection:
             cursor = connection.cursor()
@@ -278,10 +314,14 @@ class Database:
             self.drop_legacy_tables(cursor)
             connection.commit()
 
+            # drop_legacy_tables: ❌ fora (função de limpeza de esquemas anteriores, não existe no lab). Usada durante desenvolvimento para remover tabelas de versões anteriores do esquema.
     def drop_legacy_tables(self, cursor):
         for table_name in ("action_log", "building_slot", "stone", "tree", "user"):
             cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
 
+    # hasher.hash(password) ✅ (Lab 08), INSERT com ? ✅ (Lab 07).
+    # cursor.lastrowid: ❌ fora (lab faz return do objeto criado de outra forma). Usado para obter o ID do novo user imediatamente após o INSERT, evitando uma segunda query à BD.
+    # Cria um novo utilizador: guarda na BD com password hasheada e recursos iniciais (26 madeira, 26 pedra).
     def create_user(self, username, email, password):
         password_hash = hasher.hash(password)
         created_at = _format_datetime(datetime.utcnow())
@@ -297,6 +337,9 @@ class Database:
             connection.commit()
             return self.get_user_by_id(cursor.lastrowid)
 
+    # SELECT * FROM ... WHERE id = ? com fetchone: ✅ (Lab 07).
+    # from_row: ❌ fora (lab usa tuple unpacking). Usado para consistência com os restantes modelos que também usam from_row.
+    # Procura um user pelo seu ID na BD. Devolve None se não existir.
     def get_user_by_id(self, user_id):
         with self._connect() as connection:
             row = connection.execute(
@@ -305,6 +348,7 @@ class Database:
             ).fetchone()
         return User.from_row(row)
 
+    # Procura um user pelo nome de utilizador (username). Usado no login e no register.
     def get_user_by_username(self, username):
         with self._connect() as connection:
             row = connection.execute(
@@ -313,6 +357,7 @@ class Database:
             ).fetchone()
         return User.from_row(row)
 
+    # Procura um user pelo email. Usado no register para verificar se o email já existe.
     def get_user_by_email(self, email):
         with self._connect() as connection:
             row = connection.execute(
@@ -321,6 +366,8 @@ class Database:
             ).fetchone()
         return User.from_row(row)
 
+    # UPDATE com ?: ✅ (Lab 07 - update_movie).
+    # Atualiza todos os campos de um user na BD (username, email, password_hash, recursos).
     def update_user(self, user):
         with self._connect() as connection:
             connection.execute(
@@ -333,6 +380,7 @@ class Database:
             )
             connection.commit()
 
+    # Atualiza apenas os recursos (wood e stone) de um user. Usado após cada ação de jogo.
     def update_user_resources(self, user):
         with self._connect() as connection:
             connection.execute(
@@ -345,6 +393,8 @@ class Database:
             )
             connection.commit()
 
+    # INSERT em loop com for: ❌ fora (lab faz inserts individuais). Usado para criar todos os slots de construção de um user de uma só vez, de forma eficiente.
+    # Cria N slots vazios (estado "empty") para um user quando ele se regista.
     def create_default_slots(self, user_id, slot_count):
         with self._connect() as connection:
             cursor = connection.cursor()
@@ -361,6 +411,8 @@ class Database:
                 )
             connection.commit()
 
+    # SELECT * com fetchall e ORDER BY: ✅ (Lab 07 - get_movies).
+    # Devolve todos os slots de construção de um user, ordenados por número de slot.
     def list_user_slots(self, user_id):
         with self._connect() as connection:
             rows = connection.execute(
@@ -374,6 +426,8 @@ class Database:
             ).fetchall()
         return [BuildingSlot.from_row(row) for row in rows]
 
+    # Query construída dinamicamente com condicional: ❌ fora (lab usa queries fixas). Usado para reutilizar o mesmo método com ou sem filtro de user_id, evitando duplicar código.
+    # Devolve um slot específico pelo seu ID. Se user_id for fornecido, verifica se o slot pertence a esse user.
     def get_slot(self, slot_id, user_id=None):
         query = "SELECT * FROM building_slots WHERE id = ?"
         params = [slot_id]
@@ -384,6 +438,7 @@ class Database:
             row = connection.execute(query, params).fetchone()
         return BuildingSlot.from_row(row)
 
+    # Atualiza todos os campos de um slot na BD (tipo de construção, estado, timestamps, etc.).
     def update_slot(self, slot):
         with self._connect() as connection:
             connection.execute(
@@ -407,6 +462,7 @@ class Database:
             )
             connection.commit()
 
+    # Regista uma ação no histórico do jogador (ex: "Árvore cortada: +4 madeira") com a data/hora atual.
     def add_action_log(self, user_id, message):
         created_at = _format_datetime(datetime.utcnow())
         with self._connect() as connection:
@@ -419,6 +475,9 @@ class Database:
             )
             connection.commit()
 
+    # fetchall com ORDER BY + dicionário: ✅ (semelhante a get_movies no Lab 07).
+    # Devolve um dicionário com todos os tipos de construção disponíveis (cabana, mina, forja).
+    # A chave é o identificador (ex: "cabana") e o valor é outro dicionário com nome, custos, tempos, recompensas.
     def get_buildings(self):
         with self._connect() as connection:
             rows = connection.execute(
@@ -439,6 +498,7 @@ class Database:
             }
         return result
 
+    # Devolve os dados de uma construção específica pela sua key (ex: "cabana") ou None se não existir.
     def get_building(self, key):
         with self._connect() as connection:
             row = connection.execute(
@@ -458,6 +518,8 @@ class Database:
             "description": row["description"],
         }
 
+    # SELECT com LIMIT e ORDER BY DESC: ❌ fora (lab não usa LIMIT nem ORDER BY DESC). Usado para mostrar apenas as ações mais recentes no histórico.
+    # Devolve as últimas N ações do jogador, ordenadas da mais recente para a mais antiga.
     def list_action_logs(self, user_id, limit=8):
         with self._connect() as connection:
             rows = connection.execute(
@@ -472,6 +534,8 @@ class Database:
             ).fetchall()
         return [ActionLog.from_row(row) for row in rows]
 
+    # ensure_trees / ensure_stones: ❌ fora (específicos do jogo). Necessário para garantir que árvores e pedras existem no mapa mesmo depois de reiniciar o servidor.
+    # Garante que as 3 árvores do mapa existem na BD (INSERT OR IGNORE para não duplicar).
     def ensure_trees(self):
         with self._connect() as connection:
             cursor = connection.cursor()
@@ -485,6 +549,7 @@ class Database:
                 )
             connection.commit()
 
+    # Garante que as 4 pedras do mapa existem na BD.
     def ensure_stones(self):
         with self._connect() as connection:
             cursor = connection.cursor()
@@ -498,8 +563,11 @@ class Database:
                 )
             connection.commit()
 
+    # Número de slots de construção por jogador (definido como constante da classe).
     DEFAULT_SLOT_COUNT = 4
 
+    # Query construída dinamicamente (WHERE condicional): ❌ fora (lab tem queries fixas). Usado para listar recursos incluindo ou excluindo os removidos, conforme necessário.
+    # Devolve todas as árvores do mapa, com opção de incluir ou excluir as que foram removidas.
     def list_trees(self, include_removed=False):
         query = "SELECT * FROM trees"
         params = []
@@ -510,6 +578,7 @@ class Database:
             rows = connection.execute(query, params).fetchall()
         return [Tree.from_row(row) for row in rows]
 
+    # Devolve todas as pedras do mapa, com opção de incluir ou excluir as que foram removidas.
     def list_stones(self, include_removed=False):
         query = "SELECT * FROM stones"
         params = []
@@ -520,6 +589,7 @@ class Database:
             rows = connection.execute(query, params).fetchall()
         return [Stone.from_row(row) for row in rows]
 
+    # Devolve uma árvore específica pela sua coluna no mapa (ou None se não existir nessa coluna).
     def get_tree_by_column(self, column, include_removed=False):
         query = "SELECT * FROM trees WHERE column = ?"
         params = [column]
@@ -529,6 +599,7 @@ class Database:
             row = connection.execute(query, params).fetchone()
         return Tree.from_row(row)
 
+    # Devolve uma pedra específica pela sua coluna no mapa (ou None se não existir nessa coluna).
     def get_stone_by_column(self, column, include_removed=False):
         query = "SELECT * FROM stones WHERE column = ?"
         params = [column]
@@ -538,6 +609,7 @@ class Database:
             row = connection.execute(query, params).fetchone()
         return Stone.from_row(row)
 
+    # Atualiza os dados de uma árvore na BD (ex: depois de ser cortada, regista chopped_at).
     def update_tree(self, tree):
         with self._connect() as connection:
             connection.execute(
@@ -556,6 +628,7 @@ class Database:
             )
             connection.commit()
 
+    # Atualiza os dados de uma pedra na BD (ex: depois de ser minerada, regista mined_at).
     def update_stone(self, stone):
         with self._connect() as connection:
             connection.execute(

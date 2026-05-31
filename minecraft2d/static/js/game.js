@@ -1,6 +1,6 @@
-  // O código só começa depois de a página carregar os elementos HTML.
+// Tudo começa quando o DOM está carregado (dentro da matéria: Lab 04 - DOMContentLoaded).
 function initGame() {
-  // Guardamos referências aos elementos da interface para os atualizar depois.
+  // Guardar referências a elementos do DOM (dentro da matéria: Lab 05 - getElementById).
   var steeve = document.getElementById('steeve');
   var sceneFrame = document.getElementById('scene-frame');
   var sceneGrid = document.getElementById('scene-grid');
@@ -10,23 +10,24 @@ function initGame() {
   var logsList = document.getElementById('logs-list');
   var buildingButtons = document.getElementsByClassName('building-option');
 
-  // Estas variáveis controlam o tamanho do mapa, a posição do jogador e o estado da interface.
+  // Variáveis de estado: tamanho do tile, colunas, posição do jogador, construção selecionada.
+  // Uso de variáveis: Lab 04 ✅.
   var tileSize = 96;
   var mapColumns = 12;
   var minimumColumns = 12;
   var mapRows = 2;
   var selectedBuildingKey = 'cabana';
-  // A posição é guardada no navegador para não se perder quando a página recarrega.
+  // localStorage para persistir posição entre recarregamentos (dentro da matéria: Lab 06 - LocalStorage).
   var steeveTile = parseInt(localStorage.getItem('steeve-tile'), 10) || 2;
   var walkLimit = mapColumns - 1;
   var latestStatePayload = null;
-  // Guardamos os valores anteriores para perceber se o inventário mudou.
   var previousInventory = {
     wood: -1,
     stone: -1
   };
 
-  // Esta função define o tamanho base dos tiles conforme o tamanho do ecrã.
+  // Ajusta tamanho base dos tiles conforme a largura do ecrã.
+  // Media queries com JS (fora da matéria: window.innerWidth não foi ensinado nos labs de JS).
   function getBaseTileSize() {
     if (window.innerWidth <= 720) {
       return 72;
@@ -35,7 +36,8 @@ function initGame() {
     return 96;
   }
 
-  // Aqui adaptamos o mapa ao espaço disponível e evitamos que o jogador saia fora da área.
+  // Adapta o número de colunas ao espaço disponível no ecrã.
+  // (fora da matéria: clientWidth / getBoundingClientRect não foram ensinados nos labs).
   function updateSceneMetrics() {
     var frameWidth = 0;
     var computedColumns = 0;
@@ -49,7 +51,6 @@ function initGame() {
     frameWidth = sceneFrame.clientWidth || sceneFrame.getBoundingClientRect().width || window.innerWidth;
 
     if (window.innerWidth <= 430) {
-      // Mantém as colunas obrigatórias visíveis em ecrãs estreitos.
       var maxMin = frameWidth / minimumColumns;
       tileSize = maxMin > 32 ? maxMin : 32;
       tileSize = parseInt(tileSize, 10);
@@ -67,8 +68,10 @@ function initGame() {
     }
   }
 
-  // Desenha o cenário completo com tiles, pedras e posições.
-  // Esta parte trata da interface do utilizador.
+  // Desenha o cenário (tiles de relva, terra e pedras) no ecrã.
+  // createElement / appendChild / innerHTML / className / setAttribute: Lab 05 ✅.
+  // onclick em elementos dinâmicos: Lab 05 ✅.
+  // fetch API + promises: fora da matéria (Lab 04-06 não ensinam fetch nem promises).
   function buildScene(stones) {
     var row;
     var column;
@@ -103,7 +106,7 @@ function initGame() {
         tile.style.width = tileSize + 'px';
         tile.style.height = tileSize + 'px';
 
-        // Clique direto no tile para minerar pedra.
+        // Clique para minerar pedra (fetch/post: fora da matéria dos labs de JS).
         if (stone && stone.available) {
           tile.className = 'scene-tile scene-stone';
           tile.style.zIndex = '2';
@@ -150,7 +153,7 @@ function initGame() {
           };
         }
 
-        // Contador visual por cima da pedra enquanto espera.
+        // Contador visual de cooldown da pedra (criação dinâmica de elementos: Lab 05 ✅).
         if (stone && !stone.available) {
           var stoneBadge = document.createElement('div');
           stoneBadge.className = 'stone-timer-badge';
@@ -169,13 +172,12 @@ function initGame() {
         }
 
         sceneGrid.appendChild(tile);
-
-        // As árvores são desenhadas pela função renderTrees.
       }
     }
   }
 
-  // Animação visual para remover elementos da interface.
+  // Animação visual para remover elementos (style.opacity/transform: Lab 04 ✅).
+  // parentNode.removeChild: Lab 05 ✅.
   function deleteItem(element, options) {
     var node = element;
     var delay = 0;
@@ -198,7 +200,8 @@ function initGame() {
     }, delay);
   }
 
-  // Posicionamento visual do personagem no mapa.
+  // Posiciona o Steve visualmente no tile correto (style.left/bottom: Lab 04 ✅).
+  // localStorage: Lab 06 ✅.
   function setSteevePosition() {
     if (!steeve) {
       return;
@@ -219,7 +222,8 @@ function initGame() {
     localStorage.setItem('steeve-tile', '' + steeveTile);
   }
 
-  // Movimento do personagem com base em teclas.
+  // Move o Steve para a esquerda ou direita.
+  // classList.add/remove: Lab 05 ✅.
   function moveSteeve(direction) {
     steeveTile += direction;
 
@@ -234,18 +238,19 @@ function initGame() {
     setSteevePosition();
   }
 
-  // Devolve a coluna atual do jogador a partir do estado já guardado no JS.
   function getPlayerTile() {
     return steeveTile;
   }
 
-  // Confirma se o jogador está perto o suficiente para interagir com uma coluna.
+  // Verifica se o jogador está a 1 tile de distância (dentro da matéria: lógica JS básica ✅).
   function canInteractWithColumn(column) {
     var diff = getPlayerTile() - column;
     return (diff >= -1 && diff <= 1);
   }
 
-  // Faz um pedido JSON ao servidor e devolve o resultado já organizado.
+  // Faz um pedido POST ao servidor com body JSON.
+  // fetch + .then() + .catch() + promises:
+  //   Fora da matéria (Lab 04-06 não ensinam fetch nem promises; o projeto final menciona Fetch API).
   function requestJson(url, body) {
     return fetch(url, {
       method: 'POST',
@@ -260,7 +265,7 @@ function initGame() {
     });
   }
 
-  // Traduz o estado interno do slot para texto legível na interface.
+  // Traduz o estado de um slot para texto legível (dentro da matéria: lógica/if-else ✅).
   function formatState(state) {
     if (state === 'building') {
       return 'A construir';
@@ -281,7 +286,8 @@ function initGame() {
     return 'Vazio';
   }
 
-  // Painel visual com o histórico de ações.
+  // Renderiza o histórico de ações (createElement, appendChild, textContent: Lab 05 ✅).
+  // new Date() / getHours / getMinutes: Lab 04 ✅.
   function renderLogs(logs) {
     if (!logsList) {
       return;
@@ -308,7 +314,9 @@ function initGame() {
     }
   }
 
-  // Interface dinâmica dos slots de construção.
+  // Cria os cartões de slot de construção dinamicamente.
+  // createElement / className / textContent / appendChild / onclick: Lab 05 ✅.
+  // for loop: Lab 04 ✅.
   function renderSlots(slots, buildings) {
     if (!slotsGrid) {
       return;
@@ -381,7 +389,7 @@ function initGame() {
     }
   }
 
-  // Cria visualmente cada caixa do inventário.
+  // Cria uma slot visual do inventário (createElement / className / appendChild: Lab 05 ✅).
   function createInventorySlot(item) {
     var slot = document.createElement('div');
     slot.className = 'inventory-slot';
@@ -412,7 +420,9 @@ function initGame() {
     return slot;
   }
 
-  // Organização visual do inventário na página.
+  // Organiza e desenha os recursos do inventário no ecrã.
+  // createElement / appendChild / innerHTML / classList: Lab 05 ✅.
+  // for loop: Lab 04 ✅.
   function renderInventory(user) {
     var totalMainSlots = 27;
     var totalHotbarSlots = 9;
@@ -454,7 +464,7 @@ function initGame() {
     }
   }
 
-  // Atualiza toda a interface com dados do servidor.
+  // Atualiza toda a interface com dados do servidor (chama as funções de renderização).
   function renderState(payload) {
     latestStatePayload = payload;
     renderInventory(payload.user);
@@ -467,10 +477,11 @@ function initGame() {
     }
   }
 
-  // Árvores e tocos desenhados com lógica visual.
+  // Desenha árvores e tocos com contadores de tempo.
+  // createElement / className / appendChild / style / onclick / setAttribute: Lab 05 ✅.
+  // fetch + promises: fora da matéria dos labs de JS.
   function renderTrees(trees) {
     if (!sceneGrid) return;
-  // Remove árvores e tocos desenhados anteriormente.
     var existingTrees = sceneGrid.getElementsByClassName('scene-tree');
 var existingStumps = sceneGrid.getElementsByClassName('scene-tree-stump');
 var existing = [];
@@ -486,7 +497,6 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
       var row = mapRows - 1;
 
       if (t.available) {
-        // Clique direto na árvore para cortar madeira.
         var tree = document.createElement('img');
         tree.className = 'scene-tree';
         tree.src = '/static/img/tree.png';
@@ -500,6 +510,7 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
         tree.setAttribute('draggable', 'false');
         tree.setAttribute('tabindex', '-1');
 
+        // Clique para cortar árvore via fetch (fetch + promises: fora da matéria dos labs de JS).
         tree.onclick = function (ev) {
           var clicked = ev.target;
           if (!clicked) return;
@@ -538,8 +549,7 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
 
         sceneGrid.appendChild(tree);
       } else {
-        // Desenha o toco e o contador de tempo.
-        // Toco com contador visual até a árvore voltar.
+        // Toco com contador (elementos dinâmicos: Lab 05 ✅).
         var stump = document.createElement('div');
         stump.className = 'scene-tree-stump';
         stump.setAttribute('data-col', '' + column);
@@ -569,7 +579,7 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
     }
   }
 
-  // Pedido assíncrono para obter o estado atual.
+  // Pedido GET para obter estado do jogo (fetch/promises: fora da matéria dos labs de JS).
   function refreshState() {
     fetch('/api/state')
       .then(function (response) {
@@ -580,7 +590,7 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
       });
   }
 
-  // Função genérica para enviar ações ao servidor através de fetch.
+  // Função genérica para enviar ações POST ao servidor via fetch.
   function sendAction(url, body) {
     requestJson(url, body)
       .then(function (response) {
@@ -593,7 +603,6 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
       });
   }
 
-  // Remove recursos do inventário através da interface.
   function removeInventoryResource(resource, amount) {
     sendAction('/api/inventory/remove', {
       resource: resource,
@@ -601,22 +610,19 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
     });
   }
 
-  // Inicia a construção de um slot na interface.
   function buildSlot(slotId) {
     sendAction('/api/build/' + slotId, { building_key: selectedBuildingKey });
   }
 
-  // Inicia uma tarefa através do botão.
   function startTask(slotId) {
     sendAction('/api/task/' + slotId + '/start', {});
   }
 
-  // Recolhe a recompensa através da interface.
   function collectTask(slotId) {
     sendAction('/api/task/' + slotId + '/collect', {});
   }
 
-  // Ajustes finais do cenário.
+  // Configuração inicial do cenário (style.width/maxWidth: Lab 04 ✅).
   if (sceneFrame) {
     sceneFrame.style.width = '100%';
     sceneFrame.style.maxWidth = 'none';
@@ -626,11 +632,10 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
     steeve.style.zIndex = '3';
   }
 
-  // Primeiro desenho vazio; depois o estado vem do servidor.
   buildScene([]);
   setSteevePosition();
 
-  // Seleção da construção ativa na interface.
+  // Botões de seleção de construção com classList: Lab 05 ✅.
   for (var bi = 0; bi < buildingButtons.length; bi++) {
     (function (button) {
       button.onclick = function () {
@@ -644,7 +649,8 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
     })(buildingButtons[bi]);
   }
 
-  // Movimento do personagem pelo teclado.
+  // Teclado: setas e A/D para andar. document.onkeydown (vs addEventListener).
+  // addEventListener com 'keydown': Lab 04 ✅. document.onkeydown: fora (usam addEventListener nos labs).
   document.onkeydown = function (event) {
     if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') {
       moveSteeve(-1);
@@ -655,12 +661,11 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
     }
   };
 
-  // Marca a primeira construção como selecionada por defeito.
   if (buildingButtons[0]) {
     buildingButtons[0].classList.add('selected');
   }
 
-  // Redesenha o cenário quando a janela muda de tamanho.
+  // Redesenha o cenário quando a janela muda (window.onresize: fora da matéria dos labs).
   window.onresize = function () {
     if (!sceneFrame) {
       return;
@@ -675,10 +680,10 @@ for (var ei = 0; ei < existingStumps.length; ei++) { existing.push(existingStump
     setSteevePosition();
   };
 
-  // Carrega o estado inicial do jogo quando a página abre.
+  // Carrega estado inicial (fetch: fora da matéria dos labs de JS).
   refreshState();
 
-  // Atualiza periodicamente o estado do jogo.
+  // Atualização periódica do estado (setInterval: Lab 04 ✅).
   setInterval(function () {
     refreshState();
   }, 1000);
