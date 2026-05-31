@@ -441,24 +441,11 @@ function initGame() {
       card.appendChild(meta);
 
       if (slot.state === 'ready' && slot.building_type === 'cabana') {
-        var costWood = 0, costStone = 0, costIron = 0;
-        if (axeLevel === 0) {
-          costWood = 15;
-        } else if (axeLevel === 1) {
-          costWood = 20;
-          costStone = 20;
-        } else {
-          costWood = 15 + (axeLevel * 8);
-          costStone = 8 + (axeLevel * 5);
-          costIron = 3 + (axeLevel - 1) * 2;
-        }
-        var costParts = [];
-        if (costWood > 0) costParts.push(costWood + ' madeira');
-        if (costStone > 0) costParts.push(costStone + ' pedra');
-        if (costIron > 0) costParts.push(costIron + ' ferro');
+        var costWood = 15 + (axeLevel * 8);
+        var costStone = axeLevel === 0 ? 0 : 8 + (axeLevel * 5);
         var costEl = document.createElement('div');
         costEl.className = 'slot-cost';
-        costEl.textContent = 'Custo: ' + costParts.join(' · ');
+        costEl.textContent = 'Custo: ' + costWood + ' madeira' + (costStone > 0 ? ' · ' + costStone + ' pedra' : '');
         card.appendChild(costEl);
       }
 
