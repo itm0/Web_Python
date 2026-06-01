@@ -7,6 +7,6 @@ from flask_login import LoginManager
 login_manager = LoginManager()
 
 # Rota para redirecionar quando um user não autenticado tenta aceder a uma rota protegida.
-# usa o prefixo "auth." porque a rota está no Blueprint auth.
+# usa o prefixo "auth." porque a rota está no Blueprint auth.aaaaa
 # ✅ (Lab 08 — login_view).
 login_manager.login_view = "auth.login"
